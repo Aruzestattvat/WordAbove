@@ -41,4 +41,6 @@ echo "==> 内容抽样："
 unzip -l "$ZIP" | sed -n '1,6p'
 echo "==> 校验包内无 AppleDouble 垃圾："
 if unzip -l "$ZIP" | grep -q '/\._'; then echo "  ⚠️ 发现 ._ 文件"; else echo "  干净"; fi
-shasum -a 256 "$ZIP" | tee "$ZIP.sha256"
+# 只写裸文件名（不写构建机绝对路径），下载者才能直接 `shasum -a 256 -c`
+( cd "$OUT" && shasum -a 256 "$(basename "$ZIP")" > "$(basename "$ZIP").sha256" )
+cat "$ZIP.sha256"
