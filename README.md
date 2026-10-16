@@ -1,5 +1,11 @@
 # WordAbove · 词在上
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Aruzestattvat/WordAbove?label=release&color=blue)](../../releases/latest)
+[![Platform: macOS 14+](https://img.shields.io/badge/Platform-macOS%2014%2B-lightgrey.svg)](#install)
+[![Arch: Apple Silicon](https://img.shields.io/badge/Arch-Apple%20Silicon-black.svg)](#compatibility-notes)
+[![Dictionary: 399,213 entries](https://img.shields.io/badge/Dictionary-399%2C213%20entries-8A2BE2.svg)](#install)
+
 A macOS menu-bar dictionary that renders a card **above the Spotlight search field**. Type an English word in Spotlight (⌘ Space) and a card with the Chinese definition, IPA, and an example sentence appears above the search box; it dismisses itself when Spotlight closes. Follows the system light/dark appearance and never steals keyboard focus.
 
 > 词在上是一个 macOS 菜单栏词典应用：打开 Spotlight 输入英文单词，搜索框上方会浮出一张
