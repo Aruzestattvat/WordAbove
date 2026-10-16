@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+
+# 构建产物（不提交）
+dist/
+build/
+DerivedData/
+*.o
+*.dSYM/
+*.xcarchive/
+
+# 旧版备份与临时输出（Codex 工作区里的历史文件，不入库）
+*.app/
+WordAbove-*-backup.app/
+*-source.zip
+*-macos-arm64.zip
+*.sample.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# 编辑器
+.vscode/
+.idea/
+
+# 说明：以下文件**故意入库**，不要忽略
+#   Resources/dictionary.sqlite      40 MB 离线词库，clone 后即可构建
+#   Resources/*-LICENSE.txt          ECDICT / WordNet 第三方许可，随包分发

@@ -1,0 +1,65 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # Apple Silicon 中文 runner 标签
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链信息
+        run: |
+          sw_vers
+          xcode-select -p || true
+          xcrun --show-sdk-path
+          xcrun swiftc --version
+
+      - name: 校验资源与词库
+        run: |
+          test -f Resources/dictionary.sqlite
+          test -f Resources/ECDICT-LICENSE.txt
+          test -f Resources/WordNet-LICENSE.txt
+          ls -lh Resources/dictionary.sqlite
+          sqlite3 Resources/dictionary.sqlite "SELECT count(*) FROM words;"
+
+      - name: 校验 shell 语法
+        run: |
+          bash -n Scripts/build.sh
+          bash -n Scripts/run-checks.sh
+          bash -n Scripts/package-release.sh
+          bash -n Scripts/lib/sdk.sh
+
+      - name: 校验 Python 工具
+        run: python3 -m py_compile Scripts/prepare_dictionary.py
+
+      - name: 编译应用（不签名）
+        run: CODESIGN=0 bash Scripts/build.sh --out dist
+
+      - name: 编译检查项（不运行）
+        run: |
+          # 同样不盲取 `xcrun --show-sdk-path`，复用仓库内的 SDK 探测逻辑
+          source Scripts/lib/sdk.sh
+          select_sdk
+          mkdir -p dist/checks
+          xcrun swiftc -sdk "$SDK_PATH" -target "arm64-apple-macosx14.0" -swift-version 5 \
+            Tests/Support.swift Tests/MaskCheck.swift \
+            -framework AppKit -framework SwiftUI -lsqlite3 -o dist/checks/mask-check
+          xcrun swiftc -sdk "$SDK_PATH" -target "arm64-apple-macosx14.0" -swift-version 5 \
+            Tests/Support.swift Tests/NetworkCheck.swift \
+            -framework AppKit -framework SwiftUI -lsqlite3 -o dist/checks/network-check
+
+      - name: 校验产物结构
+        run: |
+          test -f "dist/词在上.app/Contents/MacOS/WordAbove"
+          test -f "dist/词在上.app/Contents/Resources/dictionary.sqlite"
+          lipo -info "dist/词在上.app/Contents/MacOS/WordAbove"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "dist/词在上.app/Contents/Info.plist"
+
+      # 不上传 artifact：包内 40 MB 词库，每次 push 都上传会浪费配额。
+      # 正式分发包走 Release（见 Scripts/package-release.sh）。
