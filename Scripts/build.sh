@@ -27,8 +27,8 @@ CODESIGN="${CODESIGN:-1}"
 APP_NAME="${APP_NAME:-词在上}"
 BUNDLE_ID="local.wordabove.SpotlightDictionary"
 EXECUTABLE="WordAbove"
-VERSION="1.0.1"
-BUILD_NUMBER="2"
+VERSION="1.1.1"
+BUILD_NUMBER="4"
 
 OUT="$ROOT/dist"
 RUN_SELF_TEST=0
@@ -61,7 +61,7 @@ echo "==> 最低系统 : macOS $MACOS_TARGET"
 echo "==> 输出     : $APP"
 
 FRAMEWORKS=(-framework AppKit -framework SwiftUI -framework ApplicationServices
-            -framework ServiceManagement -lsqlite3)
+            -framework ServiceManagement -framework Translation -lsqlite3)
 
 # 编译所有 Sources/*.swift，把 @main 与 cardFrame/normalizedWord 编进产物；
 # 自检（--self-test）走 App.swift 里的 WordAboveMain.selfTest()。

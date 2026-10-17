@@ -5,6 +5,14 @@ import ServiceManagement
 
 @MainActor final class Model: ObservableObject {
     @Published var entry: Entry?
+    @Published var translated: TranslationCardContent?
+    @Published var pair = LanguagePair(rawValue: UserDefaults.standard.string(forKey: "languagePair") ?? "") ?? .chineseEnglish {
+        didSet { UserDefaults.standard.set(pair.rawValue, forKey: "languagePair") }
+    }
+    @Published var direction = TranslationDirection(rawValue: UserDefaults.standard.string(forKey: "translationDirection") ?? "") ?? .automatic {
+        didSet { UserDefaults.standard.set(direction.rawValue, forKey: "translationDirection") }
+    }
+    @Published var translationRevision = 0
     @Published var trusted = AXIsProcessTrusted()
     @Published var loading = false
     @Published var online: Bool = UserDefaults.standard.object(forKey: "online") as? Bool ?? true {
@@ -19,7 +27,9 @@ struct DictionaryCard: View {
     @ObservedObject var model: Model
     var body: some View {
         GeometryReader { geo in
-            if let entry = model.entry {
+            if let translated = model.translated {
+                TranslationCard(content: translated, compact: geo.size.height < 170)
+            } else if let entry = model.entry {
                 let compact = geo.size.height < 170
                 VStack(alignment: .leading, spacing: compact ? 7 : 10) {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -73,6 +83,7 @@ struct SetupView: View {
     let preview: () -> Void
     let permission: () -> Void
     let loginChanged: (Bool) -> Void
+    let languages: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 14) {
@@ -83,7 +94,7 @@ struct SetupView: View {
                     Text("搜索照常，词义在上。").foregroundStyle(.secondary)
                 }
             }
-            Text("按 ⌘ 空格打开 Spotlight，输入英文单词。中文释义、音标和例句会出现在搜索框上方的独立卡片里。")
+            Text("按 ⌘ 空格打开 Spotlight，输入中文、英文或日文。卡片会按菜单栏所选语言自动互译；英文译中文时保留词典释义、音标与例句。")
                 .font(.system(size: 14)).lineSpacing(5)
             VStack(alignment: .leading, spacing: 12) {
                 Label(model.trusted ? "辅助功能已授权" : "需要一次辅助功能授权", systemImage: model.trusted ? "checkmark.circle.fill" : "lock.circle")
@@ -97,6 +108,11 @@ struct SetupView: View {
                 }
             }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+            HStack {
+                Text("自动互译：" + model.pair.title).font(.system(size: 13, weight: .medium))
+                Spacer()
+                Button("下载中英日语言包…", action: languages)
+            }
             VStack(alignment: .leading, spacing: 10) {
                 Toggle("缺少例句时联网补充", isOn: $model.online)
                 Text("仅把当前已识别的英文单词发给 api.dictionaryapi.dev。关闭后仅使用离线词库；部分单词没有例句。")
@@ -118,15 +134,17 @@ class PassivePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let model = Model()
     let observer = SpotlightObserver()
     let examples = ExampleService()
+    let translator = LocalTranslator()
     lazy var dictionary = DictionaryStore(path: Bundle.main.path(forResource: "dictionary", ofType: "sqlite") ?? "")
     var statusItem: NSStatusItem!
     var panel: PassivePanel!
     var setup: NSWindow?
     var previewWindow: NSWindow?
+    var languageWindow: NSWindow?
     var timer: Timer?
     var lookupTask: Task<Void, Never>?
     var currentWord: String?
@@ -139,7 +157,7 @@ class PassivePanel: NSPanel {
         createPanel()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "character.book.closed", accessibilityDescription: "词在上")
-        statusItem.button?.toolTip = "词在上 · Spotlight 英汉词典"
+        statusItem.button?.toolTip = "词在上 · Spotlight 自动互译"
         rebuildMenu()
         timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -147,6 +165,7 @@ class PassivePanel: NSPanel {
         timer?.tolerance = 0.04
         if !model.trusted || CommandLine.arguments.contains("--settings") { showSetup() }
         if CommandLine.arguments.contains("--preview") { showPreview() }
+        if CommandLine.arguments.contains("--languages") { showLanguageSetup() }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showSetup(); return true }
     func applicationWillTerminate(_ notification: Notification) { lookupTask?.cancel(); timer?.invalidate() }
@@ -172,16 +191,65 @@ class PassivePanel: NSPanel {
     }
     func rebuildMenu() {
         let menu = NSMenu()
+        menu.delegate = self
+        populateMenu(menu)
+        statusItem.menu = menu
+    }
+    func menuNeedsUpdate(_ menu: NSMenu) { populateMenu(menu) }
+    func populateMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
         let title = NSMenuItem(title: "词在上 · WordAbove", action: nil, keyEquivalent: "")
         menu.addItem(title); menu.addItem(.separator())
-        let toggle = NSMenuItem(title: model.enabled ? "暂停自动查词" : "恢复自动查词", action: #selector(toggleEnabled), keyEquivalent: "")
+        let pairItem = NSMenuItem(title: "自动互译：" + model.pair.title, action: nil, keyEquivalent: "")
+        let pairMenu = NSMenu()
+        for pair in LanguagePair.allCases {
+            let item = NSMenuItem(title: pair.title, action: #selector(selectPair(_:)), keyEquivalent: "")
+            item.representedObject = pair.rawValue; item.state = model.pair == pair ? .on : .off; item.target = self
+            pairMenu.addItem(item)
+        }
+        pairItem.submenu = pairMenu; menu.addItem(pairItem)
+        let directionItem = NSMenuItem(title: "翻译方向", action: nil, keyEquivalent: "")
+        let directionMenu = NSMenu()
+        for direction in TranslationDirection.allCases {
+            let item = NSMenuItem(title: direction.title(for: model.pair), action: #selector(selectDirection(_:)), keyEquivalent: "")
+            item.representedObject = direction.rawValue; item.state = model.direction == direction ? .on : .off; item.target = self
+            directionMenu.addItem(item)
+        }
+        directionItem.submenu = directionMenu; menu.addItem(directionItem)
+        let languages = NSMenuItem(title: "下载中英日语言包…", action: #selector(showLanguageSetup), keyEquivalent: "")
+        languages.target = self; menu.addItem(languages)
+        let retry = NSMenuItem(title: "重试当前翻译", action: #selector(retryTranslation), keyEquivalent: "")
+        retry.target = self; menu.addItem(retry)
+        menu.addItem(.separator())
+        let toggle = NSMenuItem(title: model.enabled ? "暂停自动翻译" : "恢复自动翻译", action: #selector(toggleEnabled), keyEquivalent: "")
         toggle.target = self; menu.addItem(toggle)
         for (title, selector) in [("设置…", #selector(showSetup)), ("预览卡片", #selector(showPreview)), ("词库来源与许可", #selector(showLicenses))] {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: ""); item.target = self; menu.addItem(item)
         }
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出词在上", action: #selector(quitApp), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
-        statusItem.menu = menu
+    }
+    @objc func selectPair(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String, let pair = LanguagePair(rawValue: value) else { return }
+        model.pair = pair; model.direction = .automatic; configurationChanged()
+    }
+    @objc func selectDirection(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String, let direction = TranslationDirection(rawValue: value) else { return }
+        model.direction = direction; configurationChanged()
+    }
+    @objc func retryTranslation() { model.translationRevision += 1; hide() }
+    func configurationChanged() { hide(); rebuildMenu() }
+    @objc func showLanguageSetup() {
+        guard #available(macOS 26.0, *) else {
+            model.note = "自动互译需要 macOS 26 或更新版本。"; showSetup(); return
+        }
+        if languageWindow == nil {
+            let hosting = NSHostingView(rootView: LanguageSetupView(model: model, changed: { [weak self] in self?.configurationChanged() }))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 490, height: 400), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "词在上 · 翻译语言"; window.contentView = hosting; window.isReleasedWhenClosed = false
+            window.setContentSize(hosting.fittingSize); window.center(); languageWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true); languageWindow?.makeKeyAndOrderFront(nil)
     }
     @objc func quitApp() { NSApp.terminate(nil) }
     @objc func toggleEnabled() { model.enabled.toggle(); hide(); rebuildMenu() }
@@ -190,7 +258,7 @@ class PassivePanel: NSPanel {
     }
     @objc func showSetup() {
         if setup == nil {
-            let view = SetupView(model: model, preview: { [weak self] in self?.showPreview() }, permission: { [weak self] in self?.openPermission() }, loginChanged: { [weak self] value in self?.setLogin(value) })
+            let view = SetupView(model: model, preview: { [weak self] in self?.showPreview() }, permission: { [weak self] in self?.openPermission() }, loginChanged: { [weak self] value in self?.setLogin(value) }, languages: { [weak self] in self?.showLanguageSetup() })
             let hosting = NSHostingView(rootView: view)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 490, height: 520), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "词在上"; window.contentView = hosting; window.isReleasedWhenClosed = false
@@ -221,7 +289,7 @@ class PassivePanel: NSPanel {
     }
     func hide() {
         panel.orderOut(nil); lookupTask?.cancel(); lookupTask = nil
-        currentWord = nil; lastFrame = nil; model.entry = nil; model.loading = false
+        currentWord = nil; lastFrame = nil; model.entry = nil; model.translated = nil; model.loading = false
     }
     func tick() {
         tickCount += 1
@@ -230,7 +298,11 @@ class PassivePanel: NSPanel {
             if model.trusted != trusted { model.trusted = trusted }
         }
         guard model.enabled, model.trusted else { if currentWord != nil { hide() }; return }
-        guard let snapshot = observer.snapshot(), let word = normalizedWord(snapshot.text) else { if currentWord != nil { hide() }; return }
+        guard let snapshot = observer.snapshot(),
+              let request = translationRequest(for: snapshot.text, pair: model.pair, direction: model.direction) else {
+            if currentWord != nil { hide() }; return
+        }
+        let word = "\(model.pair.rawValue)|\(model.direction.rawValue)|\(model.translationRevision)|\(request.text)"
         guard let screen = NSScreen.screens.max(by: { $0.frame.intersection(snapshot.frame).area < $1.frame.intersection(snapshot.frame).area }),
               let frame = cardFrame(above: snapshot.frame, visible: screen.visibleFrame) else {
             if currentWord != nil { hide() }
@@ -240,19 +312,35 @@ class PassivePanel: NSPanel {
         if lastOnline != model.online { lastOnline = model.online; currentWord = nil; lookupTask?.cancel() }
         guard currentWord != word else { return }
         currentWord = word
-        lookupTask?.cancel(); model.loading = false; model.entry = nil; panel.orderOut(nil)
+        lookupTask?.cancel(); model.loading = false; model.entry = nil; model.translated = nil; panel.orderOut(nil)
         lookupTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(180))
-            guard !Task.isCancelled, let self, self.currentWord == word, let entry = self.dictionary.lookup(word) else { return }
-            self.model.entry = entry
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let self, self.currentWord == word else { return }
+            // Preserve the offline dictionary experience for English → Chinese.
+            if request.source == .english, request.target == .chinese,
+               let key = normalizedWord(request.text), let entry = self.dictionary.lookup(key) {
+                self.model.entry = entry
+                self.panel.orderFrontRegardless()
+                if self.model.online && (entry.example.isEmpty || entry.phonetic.isEmpty) {
+                    self.model.loading = true
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled, self.currentWord == word else { return }
+                    let supplemented = await self.examples.supplement(entry)
+                    guard !Task.isCancelled, self.currentWord == word else { return }
+                    self.model.entry = supplemented; self.model.loading = false
+                }
+                return
+            }
+            self.model.translated = TranslationCardContent(request: request, text: nil, message: nil)
             self.panel.orderFrontRegardless()
-            if self.model.online && (entry.example.isEmpty || entry.phonetic.isEmpty) {
-                self.model.loading = true
-                try? await Task.sleep(for: .milliseconds(400))
+            do {
+                let text = try await self.translator.translate(request)
                 guard !Task.isCancelled, self.currentWord == word else { return }
-                let supplemented = await self.examples.supplement(entry)
+                self.model.translated = TranslationCardContent(request: request, text: text, message: nil)
+            } catch {
                 guard !Task.isCancelled, self.currentWord == word else { return }
-                self.model.entry = supplemented; self.model.loading = false
+                let message = (error as? LocalTranslationError)?.errorDescription ?? "翻译暂时不可用，请从菜单栏重试，或重新准备中英日语言包。"
+                self.model.translated = TranslationCardContent(request: request, text: nil, message: message)
             }
         }
     }
@@ -268,6 +356,8 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         withExtendedLifetime(delegate) { app.run() }
     }
     static func selfTest() {
+        checkTranslationRouting()
+        checkLanguagePreparation()
         let store = DictionaryStore(path: Bundle.main.path(forResource: "dictionary", ofType: "sqlite") ?? "")
         for word in ["hello", "serendipity", "focus", "apple", "resilience", "beautiful", "dictionary"] {
             guard let entry = store.lookup(word), !entry.translation.isEmpty, !entry.phonetic.isEmpty, !entry.example.isEmpty else { fatalError("Missing entry: \(word)") }

@@ -38,8 +38,11 @@ jobs:
       - name: 校验 Python 工具
         run: python3 -m py_compile Scripts/prepare_dictionary.py
 
-      - name: 编译应用（不签名）
-        run: CODESIGN=0 bash Scripts/build.sh --out dist
+      - name: 编译应用并运行内建自检
+        run: |
+          # --self-test 覆盖：六方向翻译路由、准备队列（重试/取消/过期回调）、
+          # 离线词库与卡片定位回归。不签名以便在 CI 中执行。
+          CODESIGN=0 bash Scripts/build.sh --out dist --self-test
 
       - name: 编译检查项（不运行）
         run: |

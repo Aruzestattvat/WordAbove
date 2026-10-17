@@ -2,84 +2,161 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Aruzestattvat/WordAbove?label=release&color=blue)](../../releases/latest)
-[![Platform: macOS 14+](https://img.shields.io/badge/Platform-macOS%2014%2B-lightgrey.svg)](#install)
+[![Platform: macOS 26+](https://img.shields.io/badge/Platform-macOS%2026%2B%20for%20translation-lightgrey.svg)](#requirements)
 [![Arch: Apple Silicon](https://img.shields.io/badge/Arch-Apple%20Silicon-black.svg)](#compatibility-notes)
-[![Dictionary: 399,213 entries](https://img.shields.io/badge/Dictionary-399%2C213%20entries-8A2BE2.svg)](#install)
+[![Dictionary: 399,213 entries](https://img.shields.io/badge/Dictionary-399%2C213%20entries-8A2BE2.svg)](#offline-dictionary)
+[![Translation: EN ⇄ ZH ⇄ JA](https://img.shields.io/badge/Translation-EN%20%E2%87%84%20ZH%20%E2%87%84%20JA-4B8BBE.svg)](#automatic-translation)
 
-A macOS menu-bar dictionary that renders a card **above the Spotlight search field**. Type an English word in Spotlight (⌘ Space) and a card with the Chinese definition, IPA, and an example sentence appears above the search box; it dismisses itself when Spotlight closes. Follows the system light/dark appearance and never steals keyboard focus.
+A macOS menu-bar **translation & dictionary** app that renders a card **above the Spotlight search field**.
+Type something in Spotlight (⌘ Space) and a card appears above the search box: Chinese/Japanese translation
+via Apple's on-device `Translation.framework`, or — for English words that hit the offline dictionary —
+the Chinese definition, IPA and an example sentence. It dismisses itself when Spotlight closes, follows the
+system light/dark appearance, and never steals keyboard focus.
 
-> 词在上是一个 macOS 菜单栏词典应用：打开 Spotlight 输入英文单词，搜索框上方会浮出一张
-> 卡片显示中文释义、音标与例句；关闭 Spotlight 后自动收起。中文完整说明见下方
-> [中文说明](#中文说明)。
+> 词在上是一个 macOS 菜单栏**翻译 + 词典**应用：打开 Spotlight 输入文字，搜索框上方浮出卡片。
+> 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
+> 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.0.1
-- **Platform**: macOS 14.0+ · Apple Silicon (arm64)
+- **Version**: 1.1.1 (build 4)
+- **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
+- **Architecture**: Apple Silicon (arm64)
+- **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
 - **Dictionary**: 399,213 offline entries, 18,480 with example sentences (ECDICT + WordNet 3.0)
 - **License**: MIT for the source · third-party data under its own terms — see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
 
 ## Install
 
-1. Download `WordAbove-1.0.1-macos-arm64.zip` from the [Releases](../../releases) page and unzip it.
-2. Drag `词在上.app` into `/Applications`.
+1. Download `WordAbove-1.1.1-macos-arm64.zip` from the [Releases](../../releases) page.
+2. Unzip it (double-click in Finder) and drag `词在上.app` into `/Applications`.
 3. Open it, then in the app's setup window click **打开辅助功能设置** and enable **词在上** under
    *System Settings → Privacy & Security → Accessibility*.
-4. Press ⌘ Space and type a word such as `hello`, `focus`, or `serendipity` — no need to hit Enter.
+4. Menu bar icon → **下载中英日语言包…** → **一键准备中英日**. The app checks and downloads any missing
+   language packs, then verifies all six translation directions. Allow macOS download prompts if shown.
+5. Once it reports **中英日已就绪 · 6/6**, press ⌘ Space and type `你好` or `Hello`.
 
 The build is ad-hoc signed (not notarized), so the first launch may require
 *System Settings → Privacy & Security → Open Anyway*.
 
+> ⚠️ Unzip with Finder. If you unzip with the command-line `unzip`, macOS AppleDouble `._*` files can break
+> the code signature — re-extract with `ditto -x -k <zip> <dir>` or just use Finder.
+
+## Automatic translation
+
+Pick a language pair from the menu bar:
+
+- 中文 ⇄ 英文 (default)
+- 中文 ⇄ 日文
+- English ⇄ 日本語
+
+Direction is auto-detected by default (type either language, get the other), or can be pinned forward/reverse
+from **翻译方向**. The pair and direction are stored locally and restored on launch. Short words and short
+sentences up to **400 characters** are supported.
+
+Ambiguity rule: a word written only in Han characters can't be reliably told apart. Under 中文/日文 pairs it is
+treated as **Chinese** by default — to translate Japanese `学校` into Chinese, pin the direction to 日文 → 中文.
+Text containing kana is treated as Japanese. English-only input does not trigger auto-translation under a
+Chinese/Japanese pair; switch the pair or pin the direction.
+
+## Offline dictionary
+
+English → Chinese words that hit the offline dictionary keep showing the Chinese definition, IPA and example
+sentence. Everything else goes through Apple's on-device translation. Translation cards show the original text,
+language direction and the result; the app never invents IPA or example sentences it has not verified.
+Long text may be truncated in the card.
+
+## Requirements
+
+| Feature | Minimum macOS |
+|---|---|
+| Automatic translation (中/英/日) | **macOS 26.0** |
+| Offline English dictionary, IPA, examples | macOS 14.0 |
+| Build from source | macOS 26+ SDK (must include `Translation.framework`) + matching Swift compiler |
+
+Language packs are managed by macOS (*System Settings → General → Language & Region → Translation Languages*).
+Downloading them needs network access; translation itself then runs on-device. The app **ships no Apple
+translation models** and does not depend on the developer's installed models — the app asks macOS to download
+them, and macOS owns the confirmation prompts.
+
+## Privacy
+
+Accessibility access is used only to read Spotlight's search field and window position. The app does not log
+keystrokes, does not read other apps' text, does not record the screen, and does not store search history.
+Emails, URLs, paths, pure numbers, control characters and inputs longer than 400 characters do not trigger
+translation.
+
+Translation uses Apple's `Translation.framework` — **no third-party translation service**. Results are cached in
+memory (last 100) and cleared on quit.
+
+The English dictionary's optional *online example supplement* is separate and opt-in (on by default): it sends
+only the current English word to `api.dictionaryapi.dev`, and can be turned off in settings. It does not affect
+on-device translation.
+
+## Layout
+
+The card matches Spotlight's width, sits 12 pt above it, and is at most 206 pt tall. It shrinks when space above
+is limited and hides when less than 100 pt is available (drag Spotlight slightly down). Screen edges constrain
+the card size.
+
 ## Build from source
 
-Requirements: Xcode Command Line Tools (`xcode-select --install`). No Xcode project, no external
-package manager — the app is four Swift files compiled directly with `swiftc`.
+Requirements: macOS 26+ SDK with `Translation.framework`, and a matching Swift toolchain
+(`xcode-select --install`). No Xcode project, no package manager — the app is compiled directly with `swiftc`.
 
 ```bash
 git clone https://github.com/Aruzestattvat/WordAbove.git
 cd WordAbove
-bash Scripts/build.sh --self-test          # 产物：dist/词在上.app
+bash Scripts/build.sh --out dist --self-test
 ```
 
-`Scripts/build.sh` reads the SDK from `xcrun --show-sdk-path`; override anything via environment
-variables instead of editing the script:
+`Scripts/build.sh` **auto-detects a usable SDK** instead of trusting `xcrun --show-sdk-path` (which may return an
+SDK built by a different Swift version). Override via environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SDK_PATH` | `xcrun --show-sdk-path` | SDK to compile against |
-| `ARCHS` | `arm64` | Space-separated; set `"arm64 x86_64"` to attempt a universal binary |
+| `SDK_PATH` | auto-detected | SDK to compile against (must contain `Translation.framework`) |
+| `ARCHS` | `arm64` | Space-separated; `"arm64 x86_64"` attempts a universal binary |
 | `MACOS_TARGET` | `14.0` | `LSMinimumSystemVersion` |
 | `SWIFT_VERSION` | `5` | Swift language mode |
 | `CODESIGN` | `1` | `0` skips the ad-hoc signature step |
 | `APP_NAME` | `词在上` | Output `.app` name |
 
+The offline dictionary (`Resources/dictionary.sqlite`, 40 MB) and all third-party licences are included in the
+repository — a normal build needs no extra downloads.
+
+`WordAbove --self-test` verifies: all six translation directions, language-pair isolation, Han/kana direction
+override, input filtering and the 400-character limit; the six-direction preparation queue (failure, retry,
+cancellation, stale callbacks, recheck); and the original dictionary + card-placement regression checks.
+
+## Package a release
+
 ```bash
-# 指定输出目录并跑自检
-bash Scripts/build.sh --out dist --self-test
-
-# 跳过签名（CI 或无 codesign 的环境）
-CODESIGN=0 bash Scripts/build.sh --out dist
-
-# 用非默认 SDK
-SDK_PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk bash Scripts/build.sh
+bash Scripts/package-release.sh --build
 ```
 
-The build ends by running `WordAbove --self-test`, which verifies offline lookups, IPA, Chinese
-meanings, examples, input filtering, and card placement.
+Uses `ditto -c -k --sequesterRsrc` (never `zip -r`, which injects `._*` AppleDouble files that break the
+signature on extraction) and writes a portable `.sha256` next to the zip.
 
 ## Repository layout
 
 ```
 WordAbove/
-├── Sources/                 Swift 源码（App / Dictionary / RoundedMaterialView / SpotlightObserver）
-├── Resources/               运行时资源：词库、图标、第三方许可全文
-│   ├── dictionary.sqlite    40 MB 离线词库（399,213 词条），clone 后即可构建
-│   ├── AppIcon.icns
-│   ├── ECDICT-LICENSE.txt   ECDICT（MIT）
-│   ├── WordNet-LICENSE.txt  Princeton WordNet 3.0
-│   └── Sources.html         应用内「词库来源与许可」页面
+├── Sources/                 Swift 源码
+│   ├── App.swift                   应用主体：状态栏、卡片、查找/翻译调度
+│   ├── Dictionary.swift            离线词库读取 + 可选联网例句补充
+│   ├── SpotlightObserver.swift     Spotlight 窗口/输入框读取、卡片定位
+│   ├── RoundedMaterialView.swift   毛玻璃圆角遮罩
+│   ├── TranslationSupport.swift    语言/语言对/方向模型 + Apple 翻译封装
+│   ├── TranslationCard.swift       翻译卡片视图
+│   ├── LanguageSetupView.swift     「一键准备中英日」窗口
+│   ├── LanguagePreparation.swift   六方向准备队列（重试/取消/过期回调隔离）
+│   └── TranslationChecks.swift     六方向路由的回归检查
+├── Resources/               运行时资源：词库、图标、第三方许可全文、来源页
+│   └── dictionary.sqlite    40 MB 离线词库（399,213 词条）
 ├── Scripts/
-│   ├── build.sh             构建（读 SDK、可配架构/部署目标）
+│   ├── build.sh             构建（SDK 自动探测、可配架构/部署目标）
+│   ├── lib/sdk.sh           共享 SDK 选择逻辑
 │   ├── run-checks.sh        编译并运行 Tests/ 下的验证程序
-│   ├── package-release.sh   打 Release 用的 zip（ditto，保留签名与权限）
+│   ├── package-release.sh   Release 打包（ditto + sha256）
 │   ├── make_icon.swift      重新生成 WordAbove.iconset/
 │   └── prepare_dictionary.py 从 ECDICT+WordNet 重建 dictionary.sqlite
 ├── Tests/                   验证程序源码（见 Tests/README.md）
@@ -88,86 +165,109 @@ WordAbove/
 
 ## Tests
 
-`Tests/` holds the verification programs used while developing; the compiled binaries are **not**
-tracked. See [Tests/README.md](Tests/README.md).
+`Tests/` holds the verification programs used while developing; compiled binaries are **not** tracked. The
+richest check is the app's own built-in self-test (`--self-test`), which covers translation routing, the
+preparation queue, and the dictionary/placement regressions. See [Tests/README.md](Tests/README.md).
 
 ```bash
-bash Scripts/run-checks.sh     # mask-check 本地、network-check 需联网
+bash Scripts/run-checks.sh            # mask-check (local) + network-check (needs network)
+bash Scripts/build.sh --self-test     # app-level self-test
 ```
 
 ## Compatibility notes
 
-- The shipped binary is **Apple Silicon only** (`arm64`). Intel Macs can build for `x86_64`
-  themselves by setting `ARCHS=x86_64` — this repository does not ship an Intel build.
-- The card's Spotlight coupling relies on the Accessibility API and window metadata; a future
-  macOS update could change that behaviour.
-- Accessibility permission may need to be re-granted after updating a locally signed build:
+- The shipped binary is **Apple Silicon only** (`arm64`). Intel Macs can build for `x86_64` by setting
+  `ARCHS=x86_64`; this repository does not ship an Intel build.
+- Automatic translation needs **macOS 26+**. On macOS 14/15 the offline English dictionary still works, but the
+  translation features report that a newer system is required.
+- Spotlight coupling relies on the Accessibility API and window metadata; a future macOS update could change it.
+- After rebuilding or updating an ad-hoc signed app, re-grant Accessibility if the card stops appearing:
   `tccutil reset Accessibility local.wordabove.SpotlightDictionary` — reset only this app, never others.
-
-## Privacy
-
-Accessibility access is used to read Spotlight's search field and window position. The app does not
-log keystrokes, does not read other apps' text, and does not store search history. Online
-supplement is **opt-in** (on by default, switchable off) and sends only the current English word to
-`api.dictionaryapi.dev`; examples are cached in memory and cleared on quit.
 
 ## License
 
 MIT for the source, © 2026 Aruzestattvat — see [LICENSE](LICENSE).
-The bundled dictionary data is third-party: ECDICT (MIT) and Princeton WordNet 3.0 — see
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Bundled dictionary data is third-party: ECDICT (MIT), Princeton WordNet 3.0, and optional
+Free Dictionary API / Wiktionary responses (CC BY-SA) — see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Translation itself is performed by Apple's `Translation.framework`, which ships no data with this repository.
 
 ---
 
 ## 中文说明
 
-独立的 macOS 菜单栏词典辅助应用。打开 Spotlight（⌘ 空格）并输入英文单词后，在搜索框上方显示中文释义、音标与例句；关闭 Spotlight 后自动收起。界面跟随系统深浅色模式，卡片不获取键盘焦点。
+macOS 菜单栏翻译辅助应用。打开 Spotlight（⌘ 空格）并输入文字，在搜索框上方显示独立卡片。卡片与 Spotlight 两侧对齐，采用原生半透明材质与圆角遮罩，不获取键盘焦点。
 
-### 首次使用
+### 自动互译
+
+点击菜单栏的词典图标，在“自动互译”中选择：
+
+- 中文 ↔ 英文（默认）
+- 中文 ↔ 日文
+- 英文 ↔ 日文
+
+默认自动判断方向，输入一种语言即译成另一种。语言对与方向会保存在本机，重启后恢复。支持短词与短句，最多 400 字符。
+
+中日文中仅含汉字的词无法可靠区分语言：中文/日文语言对下默认按中文处理；例如想把日文“学校”译成中文，请从“翻译方向”选择“日文 → 中文”。包含假名的文字按日文处理。仅含英文的内容在中文/日文语言对下不触发自动翻译，可切换语言对或手动指定方向。
+
+英文 → 中文的单词命中离线词库时，继续显示中文释义、音标和例句。其余内容交给 Apple 本机翻译。自动翻译卡片显示原文、语言方向和译文；不生成未经词典核实的音标或例句。长文本可能在卡片中截短。
+
+### 首次设置
 
 1. 把 `词在上.app` 拖进 `/Applications`。
-2. 打开应用，在设置窗口点「打开辅助功能设置」。
-3. 在「系统设置 → 隐私与安全性 → 辅助功能」中打开「词在上」的开关。若列表没有该应用，点 `+` 添加 `/Applications/词在上.app`。
-4. 回到 Spotlight，输入 `hello`、`focus`、`serendipity` 等单词。无需按回车。
+2. 打开应用，在设置中点击“打开辅助功能设置”，为当前安装版开启权限。
+3. 菜单栏 → “下载中英日语言包…” → “一键准备中英日”。无需逐组选语言，应用会自动检查并下载缺少的语言包，再验证全部六个翻译方向。如 macOS 弹出下载确认，请允许；系统可能分次询问。
+4. 显示“中英日已就绪 · 6/6”后即可使用。下载失败可点“重试未完成部分”，取消后可点“继续准备”；已安装的语言包会复用。进度数字表示已验证的方向数，不是下载百分比。
+5. 在 Spotlight 输入“你好”或“今天的天气很好。”测试中译英，切换语言对后再尝试日文。
 
-状态栏的词典图标提供设置、暂停、预览和退出。可在应用设置中开启「登录时启动」。应用不会改变 Spotlight 的快捷键或系统词典设置。
+翻译语言包由 macOS 管理，可在“系统设置 → 通用 → 语言与地区 → 翻译语言”中查看。下载语言包需要联网；下载后使用本机翻译。**自动翻译需要 macOS 26+**，本版本为 Apple Silicon 编译。macOS 14/15 的英文离线查词保留，但新增后台翻译功能需要升级系统。
 
-### 位置和内容
+### 菜单
 
-- 卡片置于 Spotlight 窗口顶部上方，间距 12 pt，宽度随 Spotlight 窗口同步、左右边缘对齐，最大高度 206 pt。只有窗口超出屏幕安全边界时才限制宽度。
-- 上方空间有限时自动缩小；不足 100 pt 时隐藏，以免遮住搜索框。此时把 Spotlight 窗口稍微向下拖动。
-- 只匹配单个英文词，也支持连字符与撇号。句子、邮箱、中文、未知词不显示卡片。
-- 399,213 个离线词条，18,480 个词条含离线例句/用法片段。部分专业词、屈折形式可能缺少音标或例句；长释义和例句会截短显示。
-- 例句可能体现某一个词义，不一定对应中文释义列表的第一项。
-- 可选联网补充仅在已识别词条缺少音标或例句时访问 Free Dictionary API。网络超时或源数据缺失时保留离线释义，并明确显示暂无例句。
+- 自动互译：选择两个语言。
+- 翻译方向：自动识别，或固定正向/反向。
+- 下载中英日语言包：一键准备三种语言，验证全部六个方向；不改变当前选定的语言对。
+- 重试当前翻译：重新处理当前输入，适用于刚下载好语言或遇到暂时错误。
+- 暂停/恢复自动翻译、设置、卡片预览、来源与许可、退出。
+
+设置中可开启登录启动。程序不会修改 Spotlight 的快捷键或其他应用的搜索开关。
 
 ### 权限与隐私
 
-辅助功能用于读取 Spotlight 的搜索栏和窗口位置。程序不记录键盘、不读取其他应用文本、不保存搜索历史。使用窗口元数据定位，不录屏、不需要屏幕录制权限。
+辅助功能仅用于读取 Spotlight 搜索栏和窗口位置。程序不记录键盘、不读取其他应用文本、不录屏，也不保存搜索历史。邮箱、网址、路径、纯数字、控制字符和超过 400 字符的输入不触发翻译。
 
-联网补充默认开启，仅把当前英文单词发给 `api.dictionaryapi.dev`；服务也会收到正常网络请求所含的 IP 等连接信息。可在设置中关闭。例句仅在内存缓存，退出清除。
+自动互译使用 Apple `Translation.framework`，不调用第三方翻译服务；译文仅在进程内缓存最近 100 条，退出清除。
 
-### 兼容性与验证
+英文词典的“缺少例句时联网补充”是单独的可选功能，默认开启；仅把已识别且需要补充的英文单词发给 `api.dictionaryapi.dev`。可在设置中关闭。这一开关不影响 Apple 本机翻译。
 
-本版本为 Apple Silicon 原生应用，面向 macOS 14 及以上，采用本机临时签名，未经 Apple 公证。其 Spotlight 联动依赖辅助功能界面，macOS 后续更新可能影响兼容性。
+### 布局与缺失内容
 
-已验证编译、离线查询、音标/释义/例句数据、无效输入、未知词、上方定位、屏幕边界、多显示器坐标和原生卡片预览。用户已确认首次版本能随 Spotlight 显示卡片。1.0.1 修复两侧对齐与毛玻璃圆角外漏；已验证不同窗口宽度下的左右边缘对齐，以及圆角遮罩四角透明。
+卡片与 Spotlight 宽度一致，间距 12 pt，高度最多 206 pt。上方空间不足时缩小；不足 100 pt 时隐藏，请将 Spotlight 稍向下拖动。屏幕边缘会限制卡片尺寸。
 
-### 从源码构建
+离线词库包含 399,213 个英文词条，其中 18,480 个带例句或用法片段。部分词条没有音标或例句；缺失内容会明确提示，不编造。英语例句可能对应其他词义。系统翻译结果也可能有歧义。
+
+### 构建与验证
 
 ```bash
 bash Scripts/build.sh --out dist --self-test
 ```
 
-构建脚本不再硬编码 SDK 版本，默认取 `xcrun --show-sdk-path`；架构与最低系统版本可用
-`ARCHS`、`MACOS_TARGET` 覆盖。词库已随仓库提供，**不需要**额外下载数据即可构建。
+需要支持 `Translation.framework` 的 macOS 26+ SDK 与匹配的 Swift 编译器，架构 arm64。构建脚本**自动探测可用 SDK**，
+也可用 `SDK_PATH=/路径/MacOSX.sdk` 指定；架构与最低系统版本可用 `ARCHS`、`MACOS_TARGET` 覆盖。
+源码、离线数据库、图标与许可文件均包含在仓库中，正常构建无需重新下载词库原始数据。
 
-### 卸载
+`WordAbove --self-test` 验证：一键准备队列的六方向覆盖、失败重试、取消、过期回调隔离和重复检查；以及六种翻译方向、语言对隔离、中日同形字的方向覆盖、输入过滤、字符上限，以及原有词库与卡片定位回归检查。
 
-在状态栏菜单退出词在上；如果启用了登录启动，先在设置中关闭；将应用移至废纸篓，并可在系统辅助功能列表移除它。
+本地使用临时签名，未经 Apple 公证。重新编译或更新后 macOS 可能要求重新授权辅助功能。若开关已开但无卡片，可仅针对本应用执行 `tccutil reset Accessibility local.wordabove.SpotlightDictionary`，然后从“应用程序”重新打开并授权。
 
-### 1.0.1 更新
+### 开源分发与语言包
 
-- 卡片与 Spotlight 等宽，两侧对齐。
-- 使用 `NSVisualEffectView.maskImage` 裁切毛玻璃材质，清除圆角外露出的矩形背景；内容层与窗口阴影同步采用圆角。
-- 本地临时签名的程序更新后可能需要重新授权辅助功能。若开关打开仍无卡片，可针对本应用执行 `tccutil reset Accessibility local.wordabove.SpotlightDictionary` 后，从应用程序目录重新打开词在上并授权。不要替其他应用重置权限。
+源代码包含下载入口与自动准备逻辑，**不包含 Apple 翻译模型**，也不依赖开发者已安装的模型。首次使用者通过应用内按钮向 macOS 请求下载；Apple 的下载授权弹窗由用户确认，应用不能代替用户确认。模型由系统管理，无需维护下载地址或把模型上传 GitHub。
+
+### 数据来源
+
+- ECDICT：中文释义及词库音标，MIT 许可。
+- Princeton WordNet 3.0：离线例句/用法片段，附原始许可；另含少量自编例句。
+- Free Dictionary API / Wiktionary：可选英语例句补充，按响应的 CC BY-SA 许可。
+- Apple Translation.framework：本机中英日翻译（不随仓库分发任何模型）。
+
+详细来源及许可在应用菜单“词库来源与许可”中。卸载时先退出应用；如启用了登录启动，先关闭，再将应用移至废纸篓。

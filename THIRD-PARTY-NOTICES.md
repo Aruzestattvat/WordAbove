@@ -2,6 +2,14 @@
 
 WordAbove 源码本身按根目录 `LICENSE` 的 MIT 许可发布。**词库数据是第三方作品**，其许可与源码不同，随应用包一起分发，说明如下。
 
+## Apple Translation.framework
+
+- 用途：中英日自动互译（1.1.0 起新增），全部在本机执行
+- 来源：macOS 系统框架（`Translation.framework`），**不随本仓库分发**任何模型或数据
+- 许可：依 macOS 系统软件许可使用；本项目不分发 Apple 的翻译模型
+- 说明：语言包由 macOS 管理并在用户授权后下载（系统设置 → 通用 → 语言与地区 → 翻译语言）；
+  应用只是调用系统接口，不内置、不托管、不上传模型
+
 ## ECDICT
 
 - 用途：`Resources/dictionary.sqlite` 中的 `word` / `phonetic` / `translation` / `definition` 字段
