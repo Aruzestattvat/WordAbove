@@ -45,6 +45,9 @@ done
 # 选择 SDK（逻辑见 Scripts/lib/sdk.sh，与 run-checks.sh / CI 共用一份）
 # ---------------------------------------------------------------------------
 # shellcheck source=lib/sdk.sh
+# 应用用到 Translation.framework，探测 SDK 时必须要求该框架存在
+REQUIRED_SDK_VERSION="26.0"
+REQUIRED_FRAMEWORKS="Translation"
 source "$ROOT/Scripts/lib/sdk.sh"
 select_sdk || exit 1
 

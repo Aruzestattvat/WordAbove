@@ -19,13 +19,46 @@
 select_sdk() {
   local readonly PROBE_SRC='import Foundation; print("ok")'
 
+  # 取 SDK 版本号（如 26.5 / 15.4），失败输出空
+  _sdk_version() {
+    /usr/libexec/PlistBuddy -c 'Print :Version' "$1/SDKSettings.plist" 2>/dev/null \
+      || xcrun --sdk "$1" --show-sdk-version 2>/dev/null
+  }
+
+  # 版本比较：$1 >= $2 返回 0
+  _version_ge() {
+    [ "$(printf '%s\n%s\n' "$2" "$1" | sort -n -t. -k1,1 -k2,2 | head -1)" = "$2" ]
+  }
+
+  # 校验某个 SDK 是否满足要求；返回不满足的原因（空 = 通过）
+  _sdk_problem() {
+    local sdk="$1" problem=""
+    if [ -n "${REQUIRED_SDK_VERSION:-}" ]; then
+      local v; v="$(_sdk_version "$sdk")"
+      if [ -z "$v" ] || ! _version_ge "$v" "$REQUIRED_SDK_VERSION"; then
+        problem="${problem} 版本 ${v:-未知}<${REQUIRED_SDK_VERSION}"
+      fi
+    fi
+    if [ -n "${REQUIRED_FRAMEWORKS:-}" ]; then
+      local fw
+      for fw in $REQUIRED_FRAMEWORKS; do
+        [ -d "$sdk/System/Library/Frameworks/${fw}.framework" ] || problem="${problem} 缺框架 ${fw}"
+      done
+    fi
+    printf '%s' "$problem"
+  }
+
   if [ -n "${SDK_PATH:-}" ]; then
     [ -d "$SDK_PATH" ] || { echo "错误：指定的 SDK_PATH 不存在 -> $SDK_PATH" >&2; return 1; }
+    local p; p="$(_sdk_problem "$SDK_PATH")"
+    [ -z "$p" ] || { echo "错误：SDK_PATH 不满足要求：${p}" >&2; return 1; }
     export SDK_PATH
     return 0
   fi
   if [ -n "${SDK:-}" ]; then
     [ -d "$SDK" ] || { echo "错误：指定的 SDK 不存在 -> $SDK" >&2; return 1; }
+    local p2; p2="$(_sdk_problem "$SDK")"
+    [ -z "$p2" ] || { echo "错误：指定的 SDK 不满足要求：${p2}" >&2; return 1; }
     SDK_PATH="$SDK"; export SDK_PATH
     return 0
   fi
@@ -53,16 +86,35 @@ select_sdk() {
   probe_dir="$(mktemp -d)"; probe_cache="$probe_dir/cache"
   printf '%s\n' "$PROBE_SRC" > "$probe_dir/ap.swift"
 
-  local chosen=""
+  local chosen="" skipped=()
   for d in ${candidates[@]+"${candidates[@]}"}; do
+    # 先按版本/框架要求过滤。只验证「能编译 hello world」不够：
+    #   · macOS 14.4 的 SDK 能编译普通 Swift，却连 Translation.framework 都没有
+    #   · 本机 macOS 15.4 的 SDK 有框架，但版本低于新 API 要求
+    # 两种情况都会让真实源码在编译期才失败，所以必须提前拦。
+    local problem; problem="$(_sdk_problem "$d")"
+    if [ -n "$problem" ]; then
+      skipped+=("$(basename "$d"):${problem}")
+      continue
+    fi
     if xcrun swiftc -sdk "$d" -target "arm64-apple-macosx${target}" -swift-version "$swver" \
          -module-cache-path "$probe_cache" "$probe_dir/ap.swift" -o "$probe_dir/ap.out" >/dev/null 2>&1; then
       chosen="$d"; break
     fi
+    skipped+=("$(basename "$d"): 探针编译失败（编译器与 SDK 不匹配）")
   done
   rm -rf "$probe_dir"
 
-  [ -n "$chosen" ] || { echo "错误：找不到可用 SDK。请设置 SDK_PATH 指向可编译的 MacOSX*.sdk" >&2; return 1; }
+  if [ -z "$chosen" ]; then
+    echo "错误：找不到满足要求的 macOS SDK。" >&2
+    echo "  要求：版本 >= ${REQUIRED_SDK_VERSION:-任意}，框架：${REQUIRED_FRAMEWORKS:-无}" >&2
+    if [ "${#skipped[@]}" -gt 0 ] 2>/dev/null; then
+      echo "  已排除：" >&2
+      printf '    %s\n' "${skipped[@]}" >&2
+    fi
+    echo "  请安装 macOS 26+ / Xcode 26+，或用 SDK_PATH 指定可用 SDK。" >&2
+    return 1
+  fi
   SDK_PATH="$chosen"; export SDK_PATH
   return 0
 }
