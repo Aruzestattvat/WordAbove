@@ -134,8 +134,9 @@ class PassivePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     let model = Model()
+    let preparation = PreparationModel()
     let observer = SpotlightObserver()
     let examples = ExampleService()
     let translator = LocalTranslator()
@@ -166,6 +167,7 @@ class PassivePanel: NSPanel {
         if !model.trusted || CommandLine.arguments.contains("--settings") { showSetup() }
         if CommandLine.arguments.contains("--preview") { showPreview() }
         if CommandLine.arguments.contains("--languages") { showLanguageSetup() }
+        Task { await preparation.refresh(); rebuildMenu() }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showSetup(); return true }
     func applicationWillTerminate(_ notification: Notification) { lookupTask?.cancel(); timer?.invalidate() }
@@ -216,7 +218,11 @@ class PassivePanel: NSPanel {
             directionMenu.addItem(item)
         }
         directionItem.submenu = directionMenu; menu.addItem(directionItem)
-        let languages = NSMenuItem(title: "下载中英日语言包…", action: #selector(showLanguageSetup), keyEquivalent: "")
+        let languageTitle: String
+        if preparation.isRunning { languageTitle = "语言包准备中…" }
+        else if preparation.allVerified { languageTitle = "语言包：中英日已就绪" }
+        else { languageTitle = "下载中英日语言包…" }
+        let languages = NSMenuItem(title: languageTitle, action: #selector(showLanguageSetup), keyEquivalent: "")
         languages.target = self; menu.addItem(languages)
         let retry = NSMenuItem(title: "重试当前翻译", action: #selector(retryTranslation), keyEquivalent: "")
         retry.target = self; menu.addItem(retry)
@@ -244,14 +250,37 @@ class PassivePanel: NSPanel {
             model.note = "自动互译需要 macOS 26 或更新版本。"; showSetup(); return
         }
         if languageWindow == nil {
-            let hosting = NSHostingView(rootView: LanguageSetupView(model: model, changed: { [weak self] in self?.configurationChanged() }))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 490, height: 400), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            let hosting = NSHostingView(rootView: LanguageSetupView(model: model, preparation: preparation, changed: { [weak self] in self?.configurationChanged() }))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 620), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "词在上 · 翻译语言"; window.contentView = hosting; window.isReleasedWhenClosed = false
+            window.delegate = self
             window.setContentSize(hosting.fittingSize); window.center(); languageWindow = window
         }
         NSApp.activate(ignoringOtherApps: true); languageWindow?.makeKeyAndOrderFront(nil)
     }
-    @objc func quitApp() { NSApp.terminate(nil) }
+    @objc func quitApp() {
+        guard confirmInterruptIfPreparing(action: "退出") else { return }
+        NSApp.terminate(nil)
+    }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        confirmInterruptIfPreparing(action: "退出") ? .terminateNow : .terminateCancel
+    }
+    /// 关窗/退出会中断会话；先明确告知用户，而不是静默取消。
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender === languageWindow else { return true }
+        return confirmInterruptIfPreparing(action: "关闭窗口")
+    }
+    private func confirmInterruptIfPreparing(action: String) -> Bool {
+        guard preparation.isRunning else { return true }
+        let alert = NSAlert()
+        alert.messageText = "语言包正在准备中"
+        alert.informativeText = "首次下载约 0.9 GB，可能需要 10–30 分钟，系统不提供下载百分比。\(action)会中断本次准备（已下载的语言包会保留）。"
+        alert.addButton(withTitle: "继续准备")
+        alert.addButton(withTitle: "中断并\(action)")
+        if alert.runModal() == .alertFirstButtonReturn { return false }
+        preparation.pause()
+        return true
+    }
     @objc func toggleEnabled() { model.enabled.toggle(); hide(); rebuildMenu() }
     @objc func showLicenses() {
         if let url = Bundle.main.url(forResource: "Sources", withExtension: "html") { NSWorkspace.shared.open(url) }
@@ -355,9 +384,10 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         let delegate = AppDelegate(); app.delegate = delegate
         withExtendedLifetime(delegate) { app.run() }
     }
-    static func selfTest() {
+    @MainActor static func selfTest() {
         checkTranslationRouting()
         checkLanguagePreparation()
+        checkPreparationModel()
         let store = DictionaryStore(path: Bundle.main.path(forResource: "dictionary", ofType: "sqlite") ?? "")
         for word in ["hello", "serendipity", "focus", "apple", "resilience", "beautiful", "dictionary"] {
             guard let entry = store.lookup(word), !entry.translation.isEmpty, !entry.phonetic.isEmpty, !entry.example.isEmpty else { fatalError("Missing entry: \(word)") }

@@ -69,3 +69,52 @@ func checkLanguagePreparation() {
     precondition(plan.isRunning)
     print("PASS: six-direction preparation queue, failure/retry, cancellation, stale callbacks and recheck.")
 }
+
+@MainActor
+func checkPreparationModel() {
+    let suite = "WordAboveSelfTest"
+    let defaults = UserDefaults(suiteName: suite)!
+    defaults.removePersistentDomain(forName: suite)
+
+    let model = PreparationModel(defaults: defaults)
+    precondition(!model.allVerified && model.readyCount == 0 && model.currentStep == nil)
+
+    model.startPreparing(skipDiskCheck: true)
+    precondition(model.isRunning && model.currentStep != nil && model.completed == 0)
+    let firstTask = model.taskID
+    model.markActivity("checking")
+    model.finish(taskID: firstTask, error: nil)
+    precondition(model.completed == 1 && model.readyCount == 1)
+    precondition(defaults.stringArray(forKey: PreparationModel.verifiedKey)?.count == 1)
+
+    // Verified directions survive a relaunch.
+    let reloaded = PreparationModel(defaults: defaults)
+    precondition(reloaded.readyCount == 1)
+
+    // Stale callbacks from a previous run must be ignored.
+    model.finish(taskID: "bogus", error: nil)
+    precondition(model.completed == 1 && model.readyCount == 1)
+
+    // Pause keeps progress; resume continues from the same step.
+    model.pause()
+    precondition(model.phase == .paused)
+    let pausedTask = model.taskID
+    model.finish(taskID: pausedTask, error: nil)
+    precondition(model.completed == 1)
+    model.startPreparing(skipDiskCheck: true)
+    precondition(model.isRunning && model.completed == 1)
+
+    // A network failure must be classified and must keep earlier progress.
+    model.finish(taskID: model.taskID, error: URLError(.notConnectedToInternet))
+    precondition(!model.isRunning && model.readyCount == 1)
+    precondition(model.lastFailure?.title.contains("网络") == true)
+    precondition(model.diagnostics().contains("语言包"))
+
+    precondition(PreparationModel.failure(for: PreparationTimeout()).title.contains("超时"))
+    precondition(PreparationModel.failure(for: NSError(domain: NSPOSIXErrorDomain, code: 28)).title.contains("磁盘"))
+    precondition(PreparationModel.failure(for: URLError(.timedOut)).title.contains("网络"))
+    precondition(PreparationModel.failure(for: NSError(domain: "TranslationErrorDomain", code: 1)).title.contains("翻译"))
+
+    defaults.removePersistentDomain(forName: suite)
+    print("PASS: preparation persistence, error classification, stale callbacks, pause/resume.")
+}

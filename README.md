@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.1 (build 4)
+- **Version**: 1.1.2 (build 5)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -26,12 +26,13 @@ system light/dark appearance, and never steals keyboard focus.
 
 ## Install
 
-1. Download `WordAbove-1.1.1-macos-arm64.zip` from the [Releases](../../releases) page.
+1. Download `WordAbove-1.1.2-macos-arm64.zip` from the [Releases](../../releases) page.
 2. Unzip it (double-click in Finder) and drag `词在上.app` into `/Applications`.
 3. Open it, then in the app's setup window click **打开辅助功能设置** and enable **词在上** under
    *System Settings → Privacy & Security → Accessibility*.
 4. Menu bar icon → **下载中英日语言包…** → **一键准备中英日**. The app checks and downloads any missing
-   language packs, then verifies all six translation directions. Allow macOS download prompts if shown.
+   language packs, then verifies all six translation directions. **The first download is roughly 0.9 GB and can
+   take 5–30 minutes**; keep the panel open and allow any macOS download prompt.
 5. Once it reports **中英日已就绪 · 6/6**, press ⌘ Space and type `你好` or `Hello`.
 
 The build is ad-hoc signed (not notarized), so the first launch may require
@@ -56,6 +57,22 @@ Ambiguity rule: a word written only in Han characters can't be reliably told apa
 treated as **Chinese** by default — to translate Japanese `学校` into Chinese, pin the direction to 日文 → 中文.
 Text containing kana is treated as Japanese. English-only input does not trigger auto-translation under a
 Chinese/Japanese pair; switch the pair or pin the direction.
+
+## If the language pack download is slow or fails
+
+The first preparation is not a small download: macOS fetches roughly **0.9 GB** of on-device models
+(installed size ~1.7 GB) and it owns the transfer — the app cannot read a byte counter or a percentage.
+Expect **5–30 minutes** depending on the network.
+
+- **Keep the window open.** Since 1.1.2, closing it or quitting asks for confirmation instead of silently
+  cancelling the download.
+- Watch real system-level progress in **System Settings → General → Language & Region → Translation
+  Languages**; the panel has a button that opens it directly.
+- If it fails: check network/proxy (try without a VPN), keep **≥ 3 GB** free disk, then press
+  **重试未完成部分**. Verified directions are remembered, so a retry does not redo everything.
+- **复制诊断信息** copies app version, macOS version, progress, free disk and the raw error — attach it to a
+  bug report.
+- Each step times out after **45 minutes** instead of waiting forever.
 
 ## Offline dictionary
 
@@ -167,7 +184,7 @@ WordAbove/
 
 `Tests/` holds the verification programs used while developing; compiled binaries are **not** tracked. The
 richest check is the app's own built-in self-test (`--self-test`), which covers translation routing, the
-preparation queue, and the dictionary/placement regressions. See [Tests/README.md](Tests/README.md).
+preparation queue, persistence/error classification, and the dictionary/placement regressions. See [Tests/README.md](Tests/README.md).
 
 ```bash
 bash Scripts/run-checks.sh            # mask-check (local) + network-check (needs network)
@@ -183,6 +200,16 @@ bash Scripts/build.sh --self-test     # app-level self-test
 - Spotlight coupling relies on the Accessibility API and window metadata; a future macOS update could change it.
 - After rebuilding or updating an ad-hoc signed app, re-grant Accessibility if the card stops appearing:
   `tccutil reset Accessibility local.wordabove.SpotlightDictionary` — reset only this app, never others.
+
+## 1.1.2 changes
+
+- Language-pack preparation reworked: elapsed timer and current direction, a 45-minute per-step timeout, and
+  failures classified as network / disk / system-service / timeout with concrete next steps.
+- Closing the window or quitting no longer cancels silently — it asks first; verified directions are persisted
+  and shown as “已就绪 N/6” after relaunch.
+- New **打开语言设置** button jumps to macOS's Translation Languages pane to watch system-level progress.
+- New **复制诊断信息** button for bug reports.
+- Fixed progress text being updated off the main thread.
 
 ## License
 
@@ -215,8 +242,8 @@ macOS 菜单栏翻译辅助应用。打开 Spotlight（⌘ 空格）并输入文
 
 1. 把 `词在上.app` 拖进 `/Applications`。
 2. 打开应用，在设置中点击“打开辅助功能设置”，为当前安装版开启权限。
-3. 菜单栏 → “下载中英日语言包…” → “一键准备中英日”。无需逐组选语言，应用会自动检查并下载缺少的语言包，再验证全部六个翻译方向。如 macOS 弹出下载确认，请允许；系统可能分次询问。
-4. 显示“中英日已就绪 · 6/6”后即可使用。下载失败可点“重试未完成部分”，取消后可点“继续准备”；已安装的语言包会复用。进度数字表示已验证的方向数，不是下载百分比。
+3. 菜单栏 → “下载中英日语言包…” → “一键准备中英日”。应用会自动检查并下载缺少的语言包，再逐个验证六个翻译方向。**首次下载约 0.9 GB（解压后约 1.7 GB），慢网可能需要 10–30 分钟**；期间请保持该窗口打开、不要退出应用。如 macOS 弹出下载确认，请点“允许”。
+4. 面板会显示已用时间、当前方向和失败归因；“已验证 N/6”是**方向数**，不是下载百分比。系统不提供下载进度，可在「系统设置 → 通用 → 语言和地区 → 翻译语言」查看系统级下载状态（面板内有“打开语言设置”按钮）。失败时点“重试未完成部分”，已验证的方向会被记住，不会重来。
 5. 在 Spotlight 输入“你好”或“今天的天气很好。”测试中译英，切换语言对后再尝试日文。
 
 翻译语言包由 macOS 管理，可在“系统设置 → 通用 → 语言与地区 → 翻译语言”中查看。下载语言包需要联网；下载后使用本机翻译。**自动翻译需要 macOS 26+**，本版本为 Apple Silicon 编译。macOS 14/15 的英文离线查词保留，但新增后台翻译功能需要升级系统。
@@ -262,6 +289,23 @@ bash Scripts/build.sh --out dist --self-test
 ### 开源分发与语言包
 
 源代码包含下载入口与自动准备逻辑，**不包含 Apple 翻译模型**，也不依赖开发者已安装的模型。首次使用者通过应用内按钮向 macOS 请求下载；Apple 的下载授权弹窗由用户确认，应用不能代替用户确认。模型由系统管理，无需维护下载地址或把模型上传 GitHub。
+
+### 语言包下载很慢或失败？
+
+- 首次是 **约 0.9 GB** 的系统级下载（解压后约 1.7 GB），应用拿不到字节进度，只有方向数。
+- **不要关窗口或退出应用**：1.1.2 起关窗/退出会先弹确认，不再静默中断下载。
+- 看真实进度：系统设置 → 通用 → 语言和地区 → 翻译语言（面板内有按钮直达）。
+- 失败排查：网络或代理（可先关 VPN）、磁盘至少留 3 GB，再点“重试未完成部分”。
+- 反馈问题时点“复制诊断信息”，把 App 版本、macOS 版本、进度、磁盘和原始错误一起发出。
+- 每个方向最多等 45 分钟，不会无限挂起。
+
+### 1.1.2 更新
+
+- 语言包准备重做：显示已用时间与当前方向；单步 45 分钟超时；失败按“网络 / 磁盘 / 系统服务 / 超时”归因并给出可执行建议。
+- 关闭窗口或退出应用不再静默取消：会先确认；已验证的方向会持久化，重开应用仍显示“已就绪 N/6”。
+- 新增“打开语言设置”，直达系统「翻译语言」面板查看系统级下载进度。
+- 新增“复制诊断信息”，便于反馈问题。
+- 修复准备进度文字可能在非主线程更新的问题。
 
 ### 数据来源
 
