@@ -6,7 +6,19 @@ struct SpotlightSnapshot {
     let frame: CGRect // AppKit screen coordinates
 }
 
+enum SpotlightAccessState: String {
+    case permission = "辅助功能未授权"
+    case notRunning = "聚焦未打开"
+    case noWindow = "未找到聚焦窗口"
+    case noSearchField = "无法读取聚焦搜索框"
+    case noSpace = "搜索框上方空间不足，卡片无法显示"
+    case ignoredInput = "当前语言对未匹配输入内容"
+    case empty = "聚焦搜索框为空"
+    case ready = "已读取聚焦搜索框"
+}
+
 final class SpotlightObserver {
+    private(set) var state: SpotlightAccessState = .notRunning
     private var cachedPID: pid_t = 0
     private var element: AXUIElement?
     private var field: AXUIElement?
@@ -28,8 +40,27 @@ final class SpotlightObserver {
         }
         return nil
     }
+    private func focusedTextField(_ element: AXUIElement) -> AXUIElement? {
+        guard let role = attribute(element, kAXRoleAttribute as CFString) as? String,
+              role == kAXTextFieldRole as String,
+              attribute(element, kAXValueAttribute as CFString) is String else { return nil }
+        return element
+    }
+    private func findTextField(_ element: AXUIElement, depth: Int = 0, budget: inout Int) -> AXUIElement? {
+        guard depth < 9, budget > 0 else { return nil }; budget -= 1
+        if let field = focusedTextField(element) { return field }
+        if let children = attribute(element, kAXChildrenAttribute as CFString) as? [AXUIElement] {
+            for child in children {
+                if let found = findTextField(child, depth: depth + 1, budget: &budget) { return found }
+            }
+        }
+        return nil
+    }
     func snapshot() -> SpotlightSnapshot? {
-        guard AXIsProcessTrusted(), let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Spotlight").first else { field = nil; return nil }
+        guard AXIsProcessTrusted() else { state = .permission; field = nil; return nil }
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Spotlight").first else {
+            state = .notRunning; field = nil; return nil
+        }
         // Window metadata only; no screenshots, keystrokes, or other apps' text are read.
         let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         let frames: [CGRect] = windows.compactMap { info in
@@ -39,30 +70,44 @@ final class SpotlightObserver {
                   (info[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { return nil }
             return rect
         }
-        guard let screenFrame = frames.min(by: { $0.minY < $1.minY }) else { field = nil; return nil }
+        guard let screenFrame = frames.min(by: { $0.minY < $1.minY }) else {
+            state = .noWindow; field = nil; return nil
+        }
         if cachedPID != app.processIdentifier || element == nil {
             cachedPID = app.processIdentifier
             element = AXUIElementCreateApplication(cachedPID)
             AXUIElementSetMessagingTimeout(element!, 0.15)
             field = nil
         }
-        guard let element else { return nil }
+        guard let element else { state = .noSearchField; return nil }
         var raw: String?
         if let field { raw = attribute(field, kAXValueAttribute as CFString) as? String }
         if raw == nil {
             if let focused = attribute(element, kAXFocusedUIElementAttribute as CFString), CFGetTypeID(focused) == AXUIElementGetTypeID() {
                 var budget = 15
-                field = findSearch(unsafeBitCast(focused, to: AXUIElement.self), budget: &budget)
+                let focusedField = unsafeBitCast(focused, to: AXUIElement.self)
+                // Older/newer Spotlight versions may omit the search subrole.
+                // This fallback only inspects the focused field of Spotlight itself.
+                field = findSearch(focusedField, budget: &budget) ?? focusedTextField(focusedField)
             }
             if field == nil, let axWindows = attribute(element, kAXWindowsAttribute as CFString) as? [AXUIElement] {
                 var budget = 90
                 for window in axWindows {
                     if let found = findSearch(window, budget: &budget) { field = found; break }
                 }
+                if field == nil {
+                    // Spotlight has used different AX identifiers/subroles across
+                    // macOS versions. Search its own window for a text field last.
+                    budget = 90
+                    for window in axWindows {
+                        if let found = findTextField(window, budget: &budget) { field = found; break }
+                    }
+                }
             }
             if let field { raw = attribute(field, kAXValueAttribute as CFString) as? String }
         }
-        guard let raw else { return nil }
+        guard let raw else { state = .noSearchField; return nil }
+        state = raw.isEmpty ? .empty : .ready
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         let frame = CGRect(x: screenFrame.minX, y: primaryHeight - screenFrame.maxY, width: screenFrame.width, height: screenFrame.height)
         return SpotlightSnapshot(text: raw, frame: frame)

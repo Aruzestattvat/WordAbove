@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import ApplicationServices
 import ServiceManagement
+import Translation
 
 @MainActor final class Model: ObservableObject {
     @Published var entry: Entry?
@@ -14,6 +15,8 @@ import ServiceManagement
     }
     @Published var translationRevision = 0
     @Published var trusted = AXIsProcessTrusted()
+    @Published var spotlightStatus = SpotlightAccessState.notRunning
+    @Published var dictionaryReady = false
     @Published var loading = false
     @Published var online: Bool = UserDefaults.standard.object(forKey: "online") as? Bool ?? true {
         didSet { UserDefaults.standard.set(online, forKey: "online") }
@@ -108,6 +111,10 @@ struct SetupView: View {
                 }
             }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 5) {
+                Label(model.dictionaryReady ? "离线词库已就绪" : "离线词库缺失或损坏", systemImage: model.dictionaryReady ? "checkmark.circle" : "exclamationmark.triangle")
+                Label("聚焦状态：" + model.spotlightStatus.rawValue, systemImage: "magnifyingglass")
+            }.font(.system(size: 12)).foregroundStyle(.secondary)
             HStack {
                 Text("自动互译：" + model.pair.title).font(.system(size: 13, weight: .medium))
                 Spacer()
@@ -152,9 +159,12 @@ class PassivePanel: NSPanel {
     var lastFrame: CGRect?
     var tickCount = 0
     var lastOnline = true
+    private var languageOfferChecked = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        model.dictionaryReady = dictionary.isReady
+        if !model.dictionaryReady { model.note = "应用内词库缺失或损坏，请重新下载安装完整的 .app。" }
         createPanel()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "character.book.closed", accessibilityDescription: "词在上")
@@ -232,6 +242,8 @@ class PassivePanel: NSPanel {
         for (title, selector) in [("设置…", #selector(showSetup)), ("预览卡片", #selector(showPreview)), ("词库来源与许可", #selector(showLicenses))] {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: ""); item.target = self; menu.addItem(item)
         }
+        let diagnostics = NSMenuItem(title: "复制诊断信息", action: #selector(copyDiagnostics), keyEquivalent: "")
+        diagnostics.target = self; menu.addItem(diagnostics)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出词在上", action: #selector(quitApp), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
     }
@@ -295,6 +307,22 @@ class PassivePanel: NSPanel {
         }
         NSApp.activate(ignoringOtherApps: true); setup?.makeKeyAndOrderFront(nil)
     }
+    @objc func copyDiagnostics() {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
+        let details = [
+            "WordAbove \(version)",
+            "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)",
+            "辅助功能：\(AXIsProcessTrusted() ? "已授权" : "未授权")",
+            "Spotlight：\(observer.state.rawValue)",
+            "离线词库：\(dictionary.isReady ? "正常" : "缺失或损坏")",
+            "语言对：\(model.pair.title)；方向：\(model.direction.title(for: model.pair))",
+            "翻译语言包：\(preparation.allVerified ? "已验证 6/6" : "尚未验证全部方向")"
+        ].joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(details, forType: .string)
+        model.note = "诊断信息已复制，可粘贴到反馈中；不包含搜索词。"
+        showSetup()
+    }
     func openPermission() {
         // Only called by a deliberate click in the app's setup screen.
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -325,15 +353,22 @@ class PassivePanel: NSPanel {
         if tickCount % 5 == 0 {
             let trusted = AXIsProcessTrusted()
             if model.trusted != trusted { model.trusted = trusted }
+            if trusted { offerLanguagePreparationIfNeeded() }
         }
         guard model.enabled, model.trusted else { if currentWord != nil { hide() }; return }
-        guard let snapshot = observer.snapshot(),
-              let request = translationRequest(for: snapshot.text, pair: model.pair, direction: model.direction) else {
+        let snapshot = observer.snapshot()
+        if model.spotlightStatus != observer.state { model.spotlightStatus = observer.state }
+        guard let snapshot else {
+            if currentWord != nil { hide() }; return
+        }
+        guard let request = translationRequest(for: snapshot.text, pair: model.pair, direction: model.direction) else {
+            if !snapshot.text.isEmpty { model.spotlightStatus = .ignoredInput }
             if currentWord != nil { hide() }; return
         }
         let word = "\(model.pair.rawValue)|\(model.direction.rawValue)|\(model.translationRevision)|\(request.text)"
         guard let screen = NSScreen.screens.max(by: { $0.frame.intersection(snapshot.frame).area < $1.frame.intersection(snapshot.frame).area }),
               let frame = cardFrame(above: snapshot.frame, visible: screen.visibleFrame) else {
+            model.spotlightStatus = .noSpace
             if currentWord != nil { hide() }
             return
         }
@@ -373,6 +408,18 @@ class PassivePanel: NSPanel {
             }
         }
     }
+    private func offerLanguagePreparationIfNeeded() {
+        guard !languageOfferChecked, #available(macOS 26.0, *) else { return }
+        languageOfferChecked = true
+        guard !UserDefaults.standard.bool(forKey: "didOfferLanguagePreparation") else { return }
+        Task {
+            let pair = model.pair.languages
+            let status = await LanguageAvailability().status(from: pair.0.locale, to: pair.1.locale)
+            guard status == .supported else { return }
+            UserDefaults.standard.set(true, forKey: "didOfferLanguagePreparation")
+            showLanguageSetup()
+        }
+    }
 }
 
 extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
@@ -380,9 +427,23 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
 @main struct WordAboveMain {
     @MainActor static func main() {
         if CommandLine.arguments.contains("--self-test") { selfTest(); return }
+        if CommandLine.arguments.contains("--diagnose") { diagnose(); return }
         let app = NSApplication.shared
         let delegate = AppDelegate(); app.delegate = delegate
         withExtendedLifetime(delegate) { app.run() }
+    }
+    @MainActor static func diagnose() {
+        let path = Bundle.main.path(forResource: "dictionary", ofType: "sqlite") ?? ""
+        let store = DictionaryStore(path: path)
+        let observer = SpotlightObserver()
+        let snapshot = observer.snapshot()
+        print("WordAbove \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知")")
+        print("macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        print("辅助功能：\(AXIsProcessTrusted() ? "已授权" : "未授权")")
+        print("离线词库：\(store.isReady ? "正常" : "缺失或损坏")")
+        print("Spotlight：\(observer.state.rawValue)")
+        print("检测到搜索框：\(snapshot == nil ? "否" : "是")")
+        print("诊断不输出搜索内容。")
     }
     @MainActor static func selfTest() {
         checkTranslationRouting()

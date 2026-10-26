@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.2 (build 5)
+- **Version**: 1.1.3 (build 6)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -26,7 +26,7 @@ system light/dark appearance, and never steals keyboard focus.
 
 ## Install
 
-1. Download `WordAbove-1.1.2-macos-arm64.zip` from the [Releases](../../releases) page.
+1. Download the latest `WordAbove-*-macos-arm64.zip` from the [Releases](../../releases) page.
 2. Unzip it (double-click in Finder) and drag `词在上.app` into `/Applications`.
 3. Open it, then in the app's setup window click **打开辅助功能设置** and enable **词在上** under
    *System Settings → Privacy & Security → Accessibility*.
@@ -37,6 +37,11 @@ system light/dark appearance, and never steals keyboard focus.
 
 The build is ad-hoc signed (not notarized), so the first launch may require
 *System Settings → Privacy & Security → Open Anyway*.
+
+If no card appears for `hello`, open the menu bar's **设置…** item. It now shows whether the bundled dictionary
+is readable and whether Spotlight's search box can be read. **复制诊断信息** copies these checks without copying your
+search text. The app can also print them from Terminal with
+`/Applications/词在上.app/Contents/MacOS/WordAbove --diagnose`.
 
 > ⚠️ Unzip with Finder. If you unzip with the command-line `unzip`, macOS AppleDouble `._*` files can break
 > the code signature — re-extract with `ditto -x -k <zip> <dir>` or just use Finder.
@@ -201,6 +206,13 @@ bash Scripts/build.sh --self-test     # app-level self-test
 - After rebuilding or updating an ad-hoc signed app, re-grant Accessibility if the card stops appearing:
   `tccutil reset Accessibility local.wordabove.SpotlightDictionary` — reset only this app, never others.
 
+## 1.1.3 changes
+
+- Show dictionary and Spotlight connection status in settings; add a privacy-safe diagnostic copy command.
+- Recognize Spotlight's focused text field even when macOS omits its older Accessibility identifier or subrole.
+- On the first authorized launch, offer the language preparation window when the selected language pair is not installed.
+- Report a missing bundled dictionary explicitly instead of silently falling back to system translation.
+
 ## 1.1.2 changes
 
 - Language-pack preparation reworked: elapsed timer and current direction, a 45-minute per-step timeout, and
@@ -247,6 +259,8 @@ macOS 菜单栏翻译辅助应用。打开 Spotlight（⌘ 空格）并输入文
 5. 在 Spotlight 输入“你好”或“今天的天气很好。”测试中译英，切换语言对后再尝试日文。
 
 翻译语言包由 macOS 管理，可在“系统设置 → 通用 → 语言与地区 → 翻译语言”中查看。下载语言包需要联网；下载后使用本机翻译。**自动翻译需要 macOS 26+**，本版本为 Apple Silicon 编译。macOS 14/15 的英文离线查词保留，但新增后台翻译功能需要升级系统。
+
+如果输入 `hello` 后完全没有上方卡片，请打开菜单栏的「设置…」查看「离线词库」和「聚焦状态」。若辅助功能未授权，点击「打开辅助功能设置」授权当前安装版；若显示无法读取搜索框，点击「复制诊断信息」提交反馈。诊断信息不包含搜索词。也可在终端运行 `/Applications/词在上.app/Contents/MacOS/WordAbove --diagnose`。
 
 ### 菜单
 

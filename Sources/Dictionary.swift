@@ -20,7 +20,14 @@ func normalizedWord(_ raw: String) -> String? {
 
 final class DictionaryStore {
     private var db: OpaquePointer?
-    init(path: String) { sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) }
+    let isReady: Bool
+    init(path: String) {
+        let opened = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK
+        var statement: OpaquePointer?
+        isReady = opened && sqlite3_prepare_v2(db, "SELECT 1 FROM words LIMIT 1", -1, &statement, nil) == SQLITE_OK
+            && sqlite3_step(statement) == SQLITE_ROW
+        sqlite3_finalize(statement)
+    }
     deinit { sqlite3_close(db) }
     func lookup(_ word: String) -> Entry? {
         var statement: OpaquePointer?
