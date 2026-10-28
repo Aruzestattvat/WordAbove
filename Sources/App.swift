@@ -158,6 +158,7 @@ class PassivePanel: NSPanel {
     var lookupTask: Task<Void, Never>?
     var currentWord: String?
     var lastFrame: CGRect?
+    var recentPlacement: String?
     var tickCount = 0
     var lastOnline = true
     private var languageOfferChecked = false
@@ -177,7 +178,7 @@ class PassivePanel: NSPanel {
         timer?.tolerance = 0.04
         if !model.trusted || CommandLine.arguments.contains("--settings") { showSetup() }
         if CommandLine.arguments.contains("--preview") { showPreview() }
-        if CommandLine.arguments.contains("--preview-compact") { showCardPreview(height: 72) }
+        if CommandLine.arguments.contains("--preview-compact") { showCardPreview(height: 78) }
         if CommandLine.arguments.contains("--languages") { showLanguageSetup() }
         Task { await preparation.refresh(); rebuildMenu() }
     }
@@ -319,6 +320,7 @@ class PassivePanel: NSPanel {
             "最近一次搜索：\(model.recentSpotlightStatus?.rawValue ?? "未检测到")",
             "最近的系统搜索窗口：\(observer.recentSearchWindowOwners.isEmpty ? "未检测到" : observer.recentSearchWindowOwners.joined(separator: "、"))",
             "最近一次位置：\(observer.recentGeometry ?? "未检测到")",
+            "最近一次卡片：\(recentPlacement ?? "未检测到")",
             "离线词库：\(dictionary.isReady ? "正常" : "缺失或损坏")",
             "语言对：\(model.pair.title)；方向：\(model.direction.title(for: model.pair))",
             "翻译语言包：\(preparation.allVerified ? "已验证 6/6" : "尚未验证全部方向")"
@@ -381,14 +383,23 @@ class PassivePanel: NSPanel {
         }
         let word = "\(model.pair.rawValue)|\(model.direction.rawValue)|\(model.translationRevision)|\(request.text)"
         let anchor = snapshot.searchFieldFrame ?? snapshot.frame
-        guard let screen = NSScreen.screens.max(by: { $0.frame.intersection(anchor).area < $1.frame.intersection(anchor).area }),
-              let frame = cardFrame(around: snapshot.frame, searchField: snapshot.searchFieldFrame,
-                                    visible: screen.visibleFrame) else {
+        guard let screen = NSScreen.screens.max(by: { $0.frame.intersection(anchor).area < $1.frame.intersection(anchor).area }) else {
             model.spotlightStatus = .noSpace
             model.recentSpotlightStatus = .noSpace
             if currentWord != nil { hide() }
             return
         }
+        let display = displaySizeClass(for: screen)
+        let visible = screen.visibleFrame
+        guard let frame = cardFrame(around: snapshot.frame, searchField: snapshot.searchFieldFrame,
+                                    visible: visible, display: display) else {
+            recentPlacement = "\(display.rawValue)；可用屏幕 \(Int(visible.width))×\(Int(visible.height))；上方不足 72 点"
+            model.spotlightStatus = .noSpace
+            model.recentSpotlightStatus = .noSpace
+            if currentWord != nil { hide() }
+            return
+        }
+        recentPlacement = "\(display.rawValue)；可用屏幕 \(Int(visible.width))×\(Int(visible.height))；卡片 \(Int(frame.width))×\(Int(frame.height))"
         if lastFrame != frame { panel.setFrame(frame, display: true); lastFrame = frame }
         if lastOnline != model.online { lastOnline = model.online; currentWord = nil; lookupTask?.cancel() }
         guard currentWord != word else { return }
@@ -508,10 +519,29 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         let campoField = CGRect(x: 701, y: 886, width: 560, height: 58)
         let remoteScreen = CGRect(x: 0, y: 0, width: 1920, height: 1040)
         let campoCard = cardFrame(around: campoWindow, searchField: campoField, visible: remoteScreen)!
-        precondition(campoCard.minY > campoField.maxY && campoCard.height == 84)
+        precondition(campoCard.minY > campoField.maxY && campoCard.height == 78)
         precondition(campoCard.minX == campoField.minX && campoCard.maxX == campoField.maxX)
         let tallerScreen = CGRect(x: 0, y: 0, width: 1920, height: 1050)
-        precondition(cardFrame(around: campoWindow, searchField: campoField, visible: tallerScreen)?.height == 90)
+        precondition(cardFrame(around: campoWindow, searchField: campoField, visible: tallerScreen)?.height == 78)
+        precondition(displaySizeClass(diagonalInches: 13.6, isBuiltIn: true) == .inch13)
+        precondition(displaySizeClass(diagonalInches: 14.2, isBuiltIn: true) == .inch14)
+        precondition(displaySizeClass(diagonalInches: 16.2, isBuiltIn: true) == .inch16)
+        precondition(displaySizeClass(diagonalInches: 16.2, isBuiltIn: false) == .other)
+        let compactHeights = [DisplaySizeClass.inch13, .inch14, .inch16].map {
+            preferredCompactCardHeight(fieldHeight: 58, display: $0)
+        }
+        precondition(compactHeights[0] < compactHeights[1] && compactHeights[1] < compactHeights[2])
+        for (display, screenSize, field) in [
+            (DisplaySizeClass.inch13, CGSize(width: 1280, height: 800), CGRect(x: 360, y: 650, width: 560, height: 52)),
+            (.inch14, CGSize(width: 1512, height: 982), CGRect(x: 476, y: 790, width: 560, height: 58)),
+            (.inch16, CGSize(width: 1728, height: 1117), CGRect(x: 584, y: 910, width: 560, height: 62))
+        ] {
+            let visible = CGRect(origin: .zero, size: screenSize)
+            let fitted = cardFrame(around: visible, searchField: field, visible: visible, display: display)!
+            precondition(fitted.minY > field.maxY && fitted.minX == field.minX)
+            precondition(fitted.height == preferredCompactCardHeight(fieldHeight: field.height, display: display))
+            precondition(visible.contains(fitted))
+        }
         let impossibleField = CGRect(x: 370, y: 800, width: 700, height: 60)
         precondition(cardFrame(around: fullWindow, searchField: impossibleField, visible: screen) == nil)
         print("PASS: offline entries, IPA, Chinese meanings, examples, input filtering, missing words, Spotlight placement on macOS 26/27, screen edges, secondary display.")

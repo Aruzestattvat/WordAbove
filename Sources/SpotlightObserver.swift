@@ -18,6 +18,43 @@ enum SpotlightAccessState: String {
     case ready = "已读取聚焦搜索框"
 }
 
+enum DisplaySizeClass: String {
+    case inch13 = "13 寸内屏"
+    case inch14 = "14 寸内屏"
+    case inch16 = "16 寸内屏"
+    case other = "其他显示器"
+}
+
+func displaySizeClass(diagonalInches: CGFloat?, isBuiltIn: Bool) -> DisplaySizeClass {
+    guard isBuiltIn, let diagonalInches else { return .other }
+    switch diagonalInches {
+    case 12.5..<14: return .inch13
+    case 14..<15: return .inch14
+    case 15.5..<17.5: return .inch16
+    default: return .other
+    }
+}
+
+func displaySizeClass(for screen: NSScreen) -> DisplaySizeClass {
+    guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return .other }
+    let id = CGDirectDisplayID(number.uint32Value)
+    let size = CGDisplayScreenSize(id)
+    let diagonal = hypot(size.width, size.height) / 25.4
+    return displaySizeClass(diagonalInches: diagonal.isFinite ? diagonal : nil,
+                            isBuiltIn: CGDisplayIsBuiltin(id) != 0)
+}
+
+func preferredCompactCardHeight(fieldHeight: CGFloat, display: DisplaySizeClass) -> CGFloat {
+    let ratio: CGFloat
+    switch display {
+    case .inch13: ratio = 1.25
+    case .inch14: ratio = 1.35
+    case .inch16: ratio = 1.45
+    case .other: ratio = 1.35
+    }
+    return min(96, max(72, (fieldHeight * ratio).rounded()))
+}
+
 func spotlightHostBundleIDs(macOSMajor: Int) -> [String] {
     // The Command-Space overlay moved to Siri AI (Campo) in macOS 27.
     // Classic Spotlight can still be enabled on that system, so keep both.
@@ -191,11 +228,14 @@ private func cardFrame(above spotlight: CGRect, visible: CGRect,
     return CGRect(x: x, y: y, width: width, height: height)
 }
 
-func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect) -> CGRect? {
+func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
+               display: DisplaySizeClass = .other) -> CGRect? {
     if let aboveWindow = cardFrame(above: window, visible: visible) { return aboveWindow }
     // Campo's result window reaches almost to the menu bar on macOS 27.
     // Keep the card above its input and reduce its height to the room available.
     // This intentionally has no side or below fallback.
-    return cardFrame(above: searchField ?? window, visible: visible,
-                     gap: 8, topInset: 4, minimumHeight: 72, maximumHeight: 90)
+    let field = searchField ?? window
+    return cardFrame(above: field, visible: visible, gap: 8, topInset: 4,
+                     minimumHeight: 72,
+                     maximumHeight: preferredCompactCardHeight(fieldHeight: field.height, display: display))
 }
