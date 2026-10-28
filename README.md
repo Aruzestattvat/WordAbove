@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.3 (build 6)
+- **Version**: 1.1.4 (build 7)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -205,8 +205,15 @@ bash Scripts/build.sh --self-test     # app-level self-test
 - Automatic translation needs **macOS 26+**. On macOS 14/15 the offline English dictionary still works, but the
   translation features report that a newer system is required.
 - Spotlight coupling relies on the Accessibility API and window metadata; a future macOS update could change it.
+- macOS 27 moved the Command-Space overlay to `com.apple.campo`. Version 1.1.4 recognizes that host while
+  excluding Campo's frontmost Siri chat window. The macOS 27 path still needs verification on a macOS 27 device.
 - After rebuilding or updating an ad-hoc signed app, re-grant Accessibility if the card stops appearing:
   `tccutil reset Accessibility local.wordabove.SpotlightDictionary` — reset only this app, never others.
+
+## 1.1.4 changes
+
+- Recognize the macOS 27 Command-Space search host (`com.apple.campo`) as well as classic Spotlight.
+- Keep Siri's regular chat window outside the search observer and preserve the most recent search diagnostics.
 
 ## 1.1.3 changes
 
@@ -264,6 +271,7 @@ macOS 菜单栏翻译辅助应用。打开 Spotlight（⌘ 空格）并输入文
 
 如果输入 `hello` 后完全没有上方卡片，请打开菜单栏的「设置…」查看「离线词库」和「聚焦状态」。若辅助功能未授权，点击「打开辅助功能设置」授权当前安装版；若显示无法读取搜索框，点击「复制诊断信息」提交反馈。诊断信息不包含搜索词。也可在终端运行 `/Applications/词在上.app/Contents/MacOS/WordAbove --diagnose`。
 macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息；应用保留最近一次搜索状态与系统搜索窗口所属进程，不保留所输入的文字。
+1.1.4 开始识别 macOS 27 的 `com.apple.campo` 搜索浮窗；普通 Siri 聊天窗口不会被当作 Spotlight 读取。
 
 ### 菜单
 

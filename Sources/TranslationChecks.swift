@@ -1,6 +1,11 @@
 import Foundation
 
 func checkTranslationRouting() {
+    precondition(spotlightHostBundleIDs(macOSMajor: 26) == ["com.apple.Spotlight"])
+    precondition(spotlightHostBundleIDs(macOSMajor: 27) == ["com.apple.campo", "com.apple.Spotlight"])
+    precondition(mayReadSpotlightHost(bundleID: "com.apple.campo", isActive: false, macOSMajor: 27))
+    precondition(!mayReadSpotlightHost(bundleID: "com.apple.campo", isActive: true, macOSMajor: 27))
+    precondition(!mayReadSpotlightHost(bundleID: "com.apple.campo", isActive: false, macOSMajor: 26))
     let cases: [(String, LanguagePair, TranslationDirection, TranslationLanguage, TranslationLanguage)] = [
         ("你好", .chineseEnglish, .automatic, .chinese, .english),
         ("我今天很开心。", .chineseEnglish, .automatic, .chinese, .english),

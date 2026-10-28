@@ -8,13 +8,26 @@ struct SpotlightSnapshot {
 
 enum SpotlightAccessState: String {
     case permission = "辅助功能未授权"
-    case notRunning = "未检测到传统 Spotlight 进程（可能未打开或系统界面已更改）"
+    case notRunning = "未检测到 Spotlight 搜索进程"
     case noWindow = "未找到聚焦窗口"
     case noSearchField = "无法读取聚焦搜索框"
     case noSpace = "搜索框上方空间不足，卡片无法显示"
     case ignoredInput = "当前语言对未匹配输入内容"
     case empty = "聚焦搜索框为空"
     case ready = "已读取聚焦搜索框"
+}
+
+func spotlightHostBundleIDs(macOSMajor: Int) -> [String] {
+    // The Command-Space overlay moved to Siri AI (Campo) in macOS 27.
+    // Classic Spotlight can still be enabled on that system, so keep both.
+    macOSMajor >= 27 ? ["com.apple.campo", "com.apple.Spotlight"] : ["com.apple.Spotlight"]
+}
+
+func mayReadSpotlightHost(bundleID: String, isActive: Bool, macOSMajor: Int) -> Bool {
+    guard spotlightHostBundleIDs(macOSMajor: macOSMajor).contains(bundleID) else { return false }
+    // Campo also owns the normal Siri chat window. The Command-Space overlay
+    // is hosted by Campo while it is not the frontmost app; never read its chat.
+    return bundleID != "com.apple.campo" || !isActive
 }
 
 final class SpotlightObserver {
@@ -72,18 +85,28 @@ final class SpotlightObserver {
             return "\(name) [\(bundle)]"
         })
         if !searchOwners.isEmpty { recentSearchWindowOwners = searchOwners.sorted() }
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Spotlight").first else {
+        let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        let hosts = spotlightHostBundleIDs(macOSMajor: major).flatMap {
+            NSRunningApplication.runningApplications(withBundleIdentifier: $0)
+        }.filter {
+            mayReadSpotlightHost(bundleID: $0.bundleIdentifier ?? "", isActive: $0.isActive, macOSMajor: major)
+        }
+        guard !hosts.isEmpty else {
             state = .notRunning; field = nil; return nil
         }
         // Window metadata only; no screenshots, keystrokes, or other apps' text are read.
-        let frames: [CGRect] = windows.compactMap { info in
-            guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == app.processIdentifier,
-                  let bounds = info[kCGWindowBounds as String] as? NSDictionary,
-                  let rect = CGRect(dictionaryRepresentation: bounds), rect.width >= 250, rect.height >= 40,
-                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { return nil }
-            return rect
+        let visibleHosts: [(NSRunningApplication, CGRect)] = hosts.compactMap { app in
+            let frames: [CGRect] = windows.compactMap { info in
+                guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == app.processIdentifier,
+                      let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                      let rect = CGRect(dictionaryRepresentation: bounds), rect.width >= 250, rect.height >= 40,
+                      (info[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { return nil }
+                return rect
+            }
+            guard let frame = frames.min(by: { $0.minY < $1.minY }) else { return nil }
+            return (app, frame)
         }
-        guard let screenFrame = frames.min(by: { $0.minY < $1.minY }) else {
+        guard let (app, screenFrame) = visibleHosts.first else {
             state = .noWindow; field = nil; return nil
         }
         if cachedPID != app.processIdentifier || element == nil {
@@ -108,9 +131,10 @@ final class SpotlightObserver {
                 for window in axWindows {
                     if let found = findSearch(window, budget: &budget) { field = found; break }
                 }
-                if field == nil {
+                if field == nil && app.bundleIdentifier != "com.apple.campo" {
                     // Spotlight has used different AX identifiers/subroles across
-                    // macOS versions. Search its own window for a text field last.
+                    // macOS versions. Campo's separate Siri chat must not use
+                    // this broad fallback.
                     budget = 90
                     for window in axWindows {
                         if let found = findTextField(window, budget: &budget) { field = found; break }
