@@ -37,11 +37,12 @@ struct DictionaryCard: View {
             } else if let entry = model.entry {
                 let compact = geo.size.height < 170
                 let tight = geo.size.height < 110
-                VStack(alignment: .leading, spacing: tight ? 2 : (compact ? 7 : 10)) {
+                let veryTight = geo.size.height < 82
+                VStack(alignment: .leading, spacing: tight ? (veryTight ? 2 : 4) : (compact ? 7 : 10)) {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(entry.word).font(.system(size: tight ? 19 : (compact ? 23 : 27), weight: .semibold, design: .rounded)).lineLimit(1)
-                        if !entry.phonetic.isEmpty {
-                            Text(phonetic(entry.phonetic)).font(.system(size: tight ? 12 : 14)).foregroundStyle(.secondary).lineLimit(1)
+                        Text(entry.word).font(.system(size: tight ? (veryTight ? 19 : 20) : (compact ? 23 : 27), weight: .semibold, design: .rounded)).lineLimit(1)
+                        if let phonetic = displayPhonetic(entry.phonetic) {
+                            Text(phonetic).font(.system(size: tight ? 13 : 14)).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 4)
                         if !tight {
@@ -49,17 +50,17 @@ struct DictionaryCard: View {
                         }
                     }
                     Text(meaning(entry.translation))
-                        .font(.system(size: tight ? 13 : 15)).lineSpacing(tight ? 0 : 3).foregroundStyle(.primary)
+                        .font(.system(size: tight ? (veryTight ? 13 : 14) : 15)).lineSpacing(tight ? 0 : 3).foregroundStyle(.primary)
                         .lineLimit(compact ? 1 : 2).frame(maxWidth: .infinity, alignment: .leading)
                     if geo.size.height >= 140 { Divider().opacity(0.65) }
                     if !entry.example.isEmpty {
-                        Text(entry.example).font(.system(size: tight ? 11.5 : 13.5)).foregroundStyle(.secondary)
+                        Text(entry.example).font(.system(size: tight ? (veryTight ? 11.5 : 12.5) : 13.5)).foregroundStyle(.secondary)
                             .lineSpacing(tight ? 0 : 3).lineLimit(tight ? 1 : (compact ? 2 : 3))
-                    } else {
+                    } else if !tight {
                         Text(model.loading ? "正在补充例句…" : "该词暂无可用例句")
                             .font(.system(size: tight ? 11 : 12)).foregroundStyle(.tertiary)
                     }
-                    Spacer(minLength: 0)
+                    if !tight { Spacer(minLength: 0) }
                     if !compact {
                         HStack {
                             Text("英汉词典")
@@ -68,16 +69,11 @@ struct DictionaryCard: View {
                         }.font(.system(size: 9.5)).foregroundStyle(.tertiary).lineLimit(1)
                     }
                 }
-                .padding(.horizontal, tight ? 16 : 20).padding(.vertical, tight ? 7 : (compact ? 12 : 16))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.horizontal, tight ? 16 : 20).padding(.vertical, tight ? (veryTight ? 6 : 8) : (compact ? 12 : 16))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tight ? .leading : .topLeading)
                 .accessibilityElement(children: .combine)
             }
         }
-    }
-    private func phonetic(_ text: String) -> String {
-        let clean = text.trimmingCharacters(in: CharacterSet(charactersIn: "/[]"))
-            .replacingOccurrences(of: "'", with: "ˈ").replacingOccurrences(of: ",", with: "ˌ").replacingOccurrences(of: "ә", with: "ə")
-        return "/" + clean + "/"
     }
     private func meaning(_ text: String) -> String {
         let lines = text.components(separatedBy: .newlines)
@@ -349,7 +345,7 @@ class PassivePanel: NSPanel {
         showCardPreview(height: 206)
     }
     private func showCardPreview(height: CGFloat) {
-        let sample = Model(); sample.entry = dictionary.lookup("serendipity")
+        let sample = Model(); sample.entry = dictionary.lookup(height < 110 ? "app" : "serendipity")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: height), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "词在上 · 卡片预览"; window.contentView = cardContent(sample)
         window.isReleasedWhenClosed = false; window.center()
@@ -406,7 +402,7 @@ class PassivePanel: NSPanel {
                let key = normalizedWord(request.text), let entry = self.dictionary.lookup(key) {
                 self.model.entry = entry
                 self.panel.orderFrontRegardless()
-                if self.model.online && (entry.example.isEmpty || entry.phonetic.isEmpty) {
+                if self.model.online && (entry.example.isEmpty || displayPhonetic(entry.phonetic) == nil) {
                     self.model.loading = true
                     try? await Task.sleep(for: .milliseconds(400))
                     guard !Task.isCancelled, self.currentWord == word else { return }
@@ -476,6 +472,11 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         for word in ["hello", "serendipity", "focus", "apple", "resilience", "beautiful", "dictionary"] {
             guard let entry = store.lookup(word), !entry.translation.isEmpty, !entry.phonetic.isEmpty, !entry.example.isEmpty else { fatalError("Missing entry: \(word)") }
         }
+        guard let app = store.lookup("app"), displayPhonetic(app.phonetic) == "/æp/", !app.example.isEmpty else {
+            fatalError("Missing app pronunciation or example")
+        }
+        precondition(displayPhonetic("/ˈæp/") == "/ˈæp/")
+        precondition(displayPhonetic("/ ?æ?p? /") == nil)
         precondition(normalizedWord("  Hello \n") == "hello")
         precondition(normalizedWord("user@example.com") == nil)
         precondition(normalizedWord("two words") == nil)
@@ -509,6 +510,8 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         let campoCard = cardFrame(around: campoWindow, searchField: campoField, visible: remoteScreen)!
         precondition(campoCard.minY > campoField.maxY && campoCard.height == 84)
         precondition(campoCard.minX == campoField.minX && campoCard.maxX == campoField.maxX)
+        let tallerScreen = CGRect(x: 0, y: 0, width: 1920, height: 1050)
+        precondition(cardFrame(around: campoWindow, searchField: campoField, visible: tallerScreen)?.height == 90)
         let impossibleField = CGRect(x: 370, y: 800, width: 700, height: 60)
         precondition(cardFrame(around: fullWindow, searchField: impossibleField, visible: screen) == nil)
         print("PASS: offline entries, IPA, Chinese meanings, examples, input filtering, missing words, Spotlight placement on macOS 26/27, screen edges, secondary display.")

@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.6 (build 9)
+- **Version**: 1.1.7 (build 10)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -211,6 +211,12 @@ bash Scripts/build.sh --self-test     # app-level self-test
 - After rebuilding or updating an ad-hoc signed app, re-grant Accessibility if the card stops appearing:
   `tccutil reset Accessibility local.wordabove.SpotlightDictionary` — reset only this app, never others.
 
+## 1.1.7 changes
+
+- Center compact dictionary content vertically and use the available 80–110 point height for clearer spacing.
+- Add a verified pronunciation and original example for `app`, which ECDICT leaves empty. Reject malformed
+  phonetic strings from online enrichment instead of showing replacement characters.
+
 ## 1.1.6 changes
 
 - Keep the card above the search input. Fit its height to the space between the field and menu bar, using a
@@ -285,6 +291,7 @@ macOS 菜单栏翻译辅助应用。打开 Spotlight（⌘ 空格）并输入文
 macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息；应用保留最近一次搜索状态与系统搜索窗口所属进程，不保留所输入的文字。
 1.1.4 开始识别 macOS 27 的 `com.apple.campo` 搜索浮窗；普通 Siri 聊天窗口不会被当作 Spotlight 读取。
 1.1.6 使用搜索输入框的实际位置摆放卡片，并按当前屏幕上方的可用高度缩小排版；卡片只出现在搜索框上方。
+1.1.7 优化顶部紧凑卡片的垂直留白，并补齐 `app` 的音标与例句；无效音标不再显示乱码。
 
 ### 菜单
 

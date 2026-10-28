@@ -174,17 +174,19 @@ final class SpotlightObserver {
 }
 
 func cardFrame(above spotlight: CGRect, visible: CGRect) -> CGRect? {
-    cardFrame(above: spotlight, visible: visible, gap: 12, topInset: 8, minimumHeight: 100)
+    cardFrame(above: spotlight, visible: visible, gap: 12, topInset: 8,
+              minimumHeight: 100, maximumHeight: 206)
 }
 
 private func cardFrame(above spotlight: CGRect, visible: CGRect,
-                       gap: CGFloat, topInset: CGFloat, minimumHeight: CGFloat) -> CGRect? {
+                       gap: CGFloat, topInset: CGFloat,
+                       minimumHeight: CGFloat, maximumHeight: CGFloat) -> CGRect? {
     let y = spotlight.maxY + gap
     let available = visible.maxY - y - topInset
     guard spotlight.intersects(visible), available >= minimumHeight else { return nil }
     // Match both Spotlight edges; only constrain the width at a screen boundary.
     let width = min(spotlight.width, visible.width - 24)
-    let height = min(206, available)
+    let height = min(maximumHeight, available)
     let x = min(max(spotlight.midX - width / 2, visible.minX + 12), visible.maxX - width - 12)
     return CGRect(x: x, y: y, width: width, height: height)
 }
@@ -195,5 +197,5 @@ func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect) -> 
     // Keep the card above its input and reduce its height to the room available.
     // This intentionally has no side or below fallback.
     return cardFrame(above: searchField ?? window, visible: visible,
-                     gap: 8, topInset: 4, minimumHeight: 72)
+                     gap: 8, topInset: 4, minimumHeight: 72, maximumHeight: 90)
 }

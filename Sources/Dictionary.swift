@@ -18,6 +18,17 @@ func normalizedWord(_ raw: String) -> String? {
     return word
 }
 
+func displayPhonetic(_ raw: String) -> String? {
+    let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "/[]")))
+        .replacingOccurrences(of: "'", with: "ˈ")
+        .replacingOccurrences(of: ",", with: "ˌ")
+        .replacingOccurrences(of: "ә", with: "ə")
+    guard !clean.isEmpty, clean.count <= 64,
+          !clean.contains("?"), !clean.contains("�"),
+          !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+    return "/" + clean + "/"
+}
+
 final class DictionaryStore {
     private var db: OpaquePointer?
     let isReady: Bool
@@ -72,7 +83,10 @@ actor ExampleService {
             guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_000_000 else { attempted.insert(entry.word); return entry }
             let results = try JSONDecoder().decode([APIEntry].self, from: data)
             var updated = entry
-            if updated.phonetic.isEmpty { updated.phonetic = results.compactMap(\.phonetic).first ?? results.flatMap { $0.phonetics ?? [] }.compactMap(\.text).first ?? "" }
+            if displayPhonetic(updated.phonetic) == nil {
+                let candidates = results.compactMap(\.phonetic) + results.flatMap { $0.phonetics ?? [] }.compactMap(\.text)
+                updated.phonetic = candidates.first(where: { displayPhonetic($0) != nil }) ?? ""
+            }
             outer: for result in results {
                 for definition in result.meanings.flatMap(\.definitions) {
                     if let example = definition.example, !example.isEmpty, example.count <= 400 {

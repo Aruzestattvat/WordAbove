@@ -33,6 +33,17 @@ func normalizedWord(_ raw: String) -> String? {
     return word
 }
 
+func displayPhonetic(_ raw: String) -> String? {
+    let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "/[]")))
+        .replacingOccurrences(of: "'", with: "ˈ")
+        .replacingOccurrences(of: ",", with: "ˌ")
+        .replacingOccurrences(of: "ә", with: "ə")
+    guard !clean.isEmpty, clean.count <= 64,
+          !clean.contains("?"), !clean.contains("�"),
+          !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+    return "/" + clean + "/"
+}
+
 final class DictionaryStore {
     private var db: OpaquePointer?
     let isReady: Bool
@@ -87,7 +98,10 @@ actor ExampleService {
             guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_000_000 else { attempted.insert(entry.word); return entry }
             let results = try JSONDecoder().decode([APIEntry].self, from: data)
             var updated = entry
-            if updated.phonetic.isEmpty { updated.phonetic = results.compactMap(\.phonetic).first ?? results.flatMap { $0.phonetics ?? [] }.compactMap(\.text).first ?? "" }
+            if displayPhonetic(updated.phonetic) == nil {
+                let candidates = results.compactMap(\.phonetic) + results.flatMap { $0.phonetics ?? [] }.compactMap(\.text)
+                updated.phonetic = candidates.first(where: { displayPhonetic($0) != nil }) ?? ""
+            }
             outer: for result in results {
                 for definition in result.meanings.flatMap(\.definitions) {
                     if let example = definition.example, !example.isEmpty, example.count <= 400 {
@@ -109,17 +123,19 @@ actor ExampleService {
 // MARK: - 源自 Sources/SpotlightObserver.swift（仅取与窗口定位有关的部分）
 
 func cardFrame(above spotlight: CGRect, visible: CGRect) -> CGRect? {
-    cardFrame(above: spotlight, visible: visible, gap: 12, topInset: 8, minimumHeight: 100)
+    cardFrame(above: spotlight, visible: visible, gap: 12, topInset: 8,
+              minimumHeight: 100, maximumHeight: 206)
 }
 
 private func cardFrame(above spotlight: CGRect, visible: CGRect,
-                       gap: CGFloat, topInset: CGFloat, minimumHeight: CGFloat) -> CGRect? {
+                       gap: CGFloat, topInset: CGFloat,
+                       minimumHeight: CGFloat, maximumHeight: CGFloat) -> CGRect? {
     let y = spotlight.maxY + gap
     let available = visible.maxY - y - topInset
     guard spotlight.intersects(visible), available >= minimumHeight else { return nil }
     // Match both Spotlight edges; only constrain the width at a screen boundary.
     let width = min(spotlight.width, visible.width - 24)
-    let height = min(206, available)
+    let height = min(maximumHeight, available)
     let x = min(max(spotlight.midX - width / 2, visible.minX + 12), visible.maxX - width - 12)
     return CGRect(x: x, y: y, width: width, height: height)
 }
@@ -130,7 +146,7 @@ func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect) -> 
     // Keep the card above its input and reduce its height to the room available.
     // This intentionally has no side or below fallback.
     return cardFrame(above: searchField ?? window, visible: visible,
-                     gap: 8, topInset: 4, minimumHeight: 72)
+                     gap: 8, topInset: 4, minimumHeight: 72, maximumHeight: 90)
 }
 
 // MARK: - 源自 Sources/RoundedMaterialView.swift
