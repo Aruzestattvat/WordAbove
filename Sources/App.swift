@@ -317,6 +317,7 @@ class PassivePanel: NSPanel {
             "Spotlight 当前状态：\(observer.state.rawValue)",
             "最近一次搜索：\(model.recentSpotlightStatus?.rawValue ?? "未检测到")",
             "最近的系统搜索窗口：\(observer.recentSearchWindowOwners.isEmpty ? "未检测到" : observer.recentSearchWindowOwners.joined(separator: "、"))",
+            "最近一次位置：\(observer.recentGeometry ?? "未检测到")",
             "离线词库：\(dictionary.isReady ? "正常" : "缺失或损坏")",
             "语言对：\(model.pair.title)；方向：\(model.direction.title(for: model.pair))",
             "翻译语言包：\(preparation.allVerified ? "已验证 6/6" : "尚未验证全部方向")"
@@ -375,8 +376,10 @@ class PassivePanel: NSPanel {
             if currentWord != nil { hide() }; return
         }
         let word = "\(model.pair.rawValue)|\(model.direction.rawValue)|\(model.translationRevision)|\(request.text)"
-        guard let screen = NSScreen.screens.max(by: { $0.frame.intersection(snapshot.frame).area < $1.frame.intersection(snapshot.frame).area }),
-              let frame = cardFrame(above: snapshot.frame, visible: screen.visibleFrame) else {
+        let anchor = snapshot.searchFieldFrame ?? snapshot.frame
+        guard let screen = NSScreen.screens.max(by: { $0.frame.intersection(anchor).area < $1.frame.intersection(anchor).area }),
+              let frame = cardFrame(around: snapshot.frame, searchField: snapshot.searchFieldFrame,
+                                    visible: screen.visibleFrame) else {
             model.spotlightStatus = .noSpace
             model.recentSpotlightStatus = .noSpace
             if currentWord != nil { hide() }
@@ -453,6 +456,7 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         print("离线词库：\(store.isReady ? "正常" : "缺失或损坏")")
         print("Spotlight：\(observer.state.rawValue)")
         print("系统搜索窗口：\(observer.recentSearchWindowOwners.joined(separator: "、"))")
+        print("搜索位置：\(observer.recentGeometry ?? "未检测到")")
         print("检测到搜索框：\(snapshot == nil ? "否" : "是")")
         print("诊断不输出搜索内容。")
     }
@@ -482,6 +486,18 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         let secondary = CGRect(x: -1440, y: -100, width: 1440, height: 900)
         let secondaryCard = cardFrame(above: CGRect(x: -1000, y: 100, width: 680, height: 300), visible: secondary)!
         precondition(secondary.contains(secondaryCard))
-        print("PASS: offline entries, IPA, Chinese meanings, examples, input filtering, missing words, above-window placement, screen edges, secondary display.")
+        precondition(cardFrame(around: search, searchField: nil, visible: screen) == card)
+        let fullWindow = screen
+        let middleField = CGRect(x: 370, y: 550, width: 700, height: 60)
+        let aboveField = cardFrame(around: fullWindow, searchField: middleField, visible: screen)!
+        precondition(aboveField.minY > middleField.maxY && screen.contains(aboveField))
+        let topField = CGRect(x: 370, y: 750, width: 700, height: 60)
+        let sideCard = cardFrame(around: fullWindow, searchField: topField, visible: screen)!
+        precondition(!sideCard.intersects(topField) && screen.contains(sideCard))
+        let narrow = CGRect(x: 0, y: 0, width: 1024, height: 700)
+        let narrowField = CGRect(x: 100, y: 610, width: 824, height: 60)
+        let belowField = cardFrame(around: narrow, searchField: narrowField, visible: narrow)!
+        precondition(belowField.maxY < narrowField.minY && narrow.contains(belowField))
+        print("PASS: offline entries, IPA, Chinese meanings, examples, input filtering, missing words, Spotlight placement on macOS 26/27, screen edges, secondary display.")
     }
 }

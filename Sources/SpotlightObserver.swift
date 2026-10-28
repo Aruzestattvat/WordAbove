@@ -3,7 +3,8 @@ import ApplicationServices
 
 struct SpotlightSnapshot {
     let text: String
-    let frame: CGRect // AppKit screen coordinates
+    let frame: CGRect // Search window in AppKit screen coordinates
+    let searchFieldFrame: CGRect?
 }
 
 enum SpotlightAccessState: String {
@@ -11,7 +12,7 @@ enum SpotlightAccessState: String {
     case notRunning = "未检测到 Spotlight 搜索进程"
     case noWindow = "未找到聚焦窗口"
     case noSearchField = "无法读取聚焦搜索框"
-    case noSpace = "搜索框上方空间不足，卡片无法显示"
+    case noSpace = "屏幕空间不足，卡片无法显示"
     case ignoredInput = "当前语言对未匹配输入内容"
     case empty = "聚焦搜索框为空"
     case ready = "已读取聚焦搜索框"
@@ -33,6 +34,7 @@ func mayReadSpotlightHost(bundleID: String, isActive: Bool, macOSMajor: Int) -> 
 final class SpotlightObserver {
     private(set) var state: SpotlightAccessState = .notRunning
     private(set) var recentSearchWindowOwners: [String] = []
+    private(set) var recentGeometry: String?
     private var cachedPID: pid_t = 0
     private var element: AXUIElement?
     private var field: AXUIElement?
@@ -69,6 +71,21 @@ final class SpotlightObserver {
             }
         }
         return nil
+    }
+    private func frameOfSearchField(_ field: AXUIElement) -> CGRect? {
+        guard let position = attribute(field, kAXPositionAttribute as CFString),
+              let size = attribute(field, kAXSizeAttribute as CFString),
+              CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        var dimensions = CGSize.zero
+        guard AXValueGetValue(unsafeBitCast(position, to: AXValue.self), .cgPoint, &point),
+              AXValueGetValue(unsafeBitCast(size, to: AXValue.self), .cgSize, &dimensions),
+              point.x.isFinite, point.y.isFinite, dimensions.width.isFinite, dimensions.height.isFinite,
+              dimensions.width >= 150, dimensions.height >= 20, dimensions.height <= 160 else { return nil }
+        // Accessibility uses a top-left origin; AppKit uses bottom-left.
+        let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
+        return CGRect(x: point.x, y: primaryTop - point.y - dimensions.height,
+                      width: dimensions.width, height: dimensions.height)
     }
     func snapshot() -> SpotlightSnapshot? {
         guard AXIsProcessTrusted() else { state = .permission; field = nil; return nil }
@@ -147,7 +164,12 @@ final class SpotlightObserver {
         state = raw.isEmpty ? .empty : .ready
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         let frame = CGRect(x: screenFrame.minX, y: primaryHeight - screenFrame.maxY, width: screenFrame.width, height: screenFrame.height)
-        return SpotlightSnapshot(text: raw, frame: frame)
+        let searchFieldFrame = field.flatMap(frameOfSearchField)
+        func description(_ rect: CGRect) -> String {
+            "x=\(Int(rect.minX)) y=\(Int(rect.minY)) w=\(Int(rect.width)) h=\(Int(rect.height))"
+        }
+        recentGeometry = "窗口(\(description(frame)))；输入框(\(searchFieldFrame.map(description) ?? "位置不可读"))"
+        return SpotlightSnapshot(text: raw, frame: frame, searchFieldFrame: searchFieldFrame)
     }
 }
 
@@ -161,4 +183,38 @@ func cardFrame(above spotlight: CGRect, visible: CGRect) -> CGRect? {
     let height = min(206, available)
     let x = min(max(spotlight.midX - width / 2, visible.minX + 12), visible.maxX - width - 12)
     return CGRect(x: x, y: y, width: width, height: height)
+}
+
+func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect) -> CGRect? {
+    if let aboveWindow = cardFrame(above: window, visible: visible) { return aboveWindow }
+    let field = searchField ?? window
+    guard field.intersects(visible) else { return nil }
+    // Campo's window can extend to the top of the display. Anchor to the
+    // actual input field before deciding there is no room above it.
+    if let aboveField = cardFrame(above: field, visible: visible) { return aboveField }
+    let gap: CGFloat = 12
+    let height = min(206, visible.height - 24)
+    guard height >= 100 else { return nil }
+    let rightSpace = visible.maxX - field.maxX - gap - 12
+    let leftSpace = field.minX - visible.minX - gap - 12
+    let useRight = rightSpace >= leftSpace
+    let sideSpace = useRight ? rightSpace : leftSpace
+    if sideSpace >= 300 {
+        let width = min(560, sideSpace)
+        let x = useRight ? field.maxX + gap : field.minX - gap - width
+        let y = min(max(field.midY - height / 2, visible.minY + 12), visible.maxY - height - 12)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+    // On a narrow display the card may need to sit below the input. Prefer
+    // below the whole result window so it does not obscure its suggestions.
+    let width = min(field.width, visible.width - 24)
+    let x = min(max(field.midX - width / 2, visible.minX + 12), visible.maxX - width - 12)
+    for bottom in [window.minY, field.minY] {
+        let available = bottom - gap - visible.minY - 8
+        if available >= 100 {
+            return CGRect(x: x, y: bottom - gap - min(206, available),
+                          width: width, height: min(206, available))
+        }
+    }
+    return nil
 }

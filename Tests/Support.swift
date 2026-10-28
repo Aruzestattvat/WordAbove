@@ -35,7 +35,14 @@ func normalizedWord(_ raw: String) -> String? {
 
 final class DictionaryStore {
     private var db: OpaquePointer?
-    init(path: String) { sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) }
+    let isReady: Bool
+    init(path: String) {
+        let opened = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK
+        var statement: OpaquePointer?
+        isReady = opened && sqlite3_prepare_v2(db, "SELECT 1 FROM words LIMIT 1", -1, &statement, nil) == SQLITE_OK
+            && sqlite3_step(statement) == SQLITE_ROW
+        sqlite3_finalize(statement)
+    }
     deinit { sqlite3_close(db) }
     func lookup(_ word: String) -> Entry? {
         var statement: OpaquePointer?
@@ -111,6 +118,40 @@ func cardFrame(above spotlight: CGRect, visible: CGRect) -> CGRect? {
     let height = min(206, available)
     let x = min(max(spotlight.midX - width / 2, visible.minX + 12), visible.maxX - width - 12)
     return CGRect(x: x, y: y, width: width, height: height)
+}
+
+func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect) -> CGRect? {
+    if let aboveWindow = cardFrame(above: window, visible: visible) { return aboveWindow }
+    let field = searchField ?? window
+    guard field.intersects(visible) else { return nil }
+    // Campo's window can extend to the top of the display. Anchor to the
+    // actual input field before deciding there is no room above it.
+    if let aboveField = cardFrame(above: field, visible: visible) { return aboveField }
+    let gap: CGFloat = 12
+    let height = min(206, visible.height - 24)
+    guard height >= 100 else { return nil }
+    let rightSpace = visible.maxX - field.maxX - gap - 12
+    let leftSpace = field.minX - visible.minX - gap - 12
+    let useRight = rightSpace >= leftSpace
+    let sideSpace = useRight ? rightSpace : leftSpace
+    if sideSpace >= 300 {
+        let width = min(560, sideSpace)
+        let x = useRight ? field.maxX + gap : field.minX - gap - width
+        let y = min(max(field.midY - height / 2, visible.minY + 12), visible.maxY - height - 12)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+    // On a narrow display the card may need to sit below the input. Prefer
+    // below the whole result window so it does not obscure its suggestions.
+    let width = min(field.width, visible.width - 24)
+    let x = min(max(field.midX - width / 2, visible.minX + 12), visible.maxX - width - 12)
+    for bottom in [window.minY, field.minY] {
+        let available = bottom - gap - visible.minY - 8
+        if available >= 100 {
+            return CGRect(x: x, y: bottom - gap - min(206, available),
+                          width: width, height: min(206, available))
+        }
+    }
+    return nil
 }
 
 // MARK: - 源自 Sources/RoundedMaterialView.swift
