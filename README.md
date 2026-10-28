@@ -42,6 +42,8 @@ If no card appears for `hello`, open the menu bar's **设置…** item. It now s
 is readable and whether Spotlight's search box can be read. **复制诊断信息** copies these checks without copying your
 search text. The app can also print them from Terminal with
 `/Applications/词在上.app/Contents/MacOS/WordAbove --diagnose`.
+For macOS 27 reports, type `hello` in Spotlight before copying diagnostics. The app keeps the most recent search
+status and search-window owner after Spotlight closes; it does not keep the typed word.
 
 > ⚠️ Unzip with Finder. If you unzip with the command-line `unzip`, macOS AppleDouble `._*` files can break
 > the code signature — re-extract with `ditto -x -k <zip> <dir>` or just use Finder.
@@ -261,6 +263,7 @@ macOS 菜单栏翻译辅助应用。打开 Spotlight（⌘ 空格）并输入文
 翻译语言包由 macOS 管理，可在“系统设置 → 通用 → 语言与地区 → 翻译语言”中查看。下载语言包需要联网；下载后使用本机翻译。**自动翻译需要 macOS 26+**，本版本为 Apple Silicon 编译。macOS 14/15 的英文离线查词保留，但新增后台翻译功能需要升级系统。
 
 如果输入 `hello` 后完全没有上方卡片，请打开菜单栏的「设置…」查看「离线词库」和「聚焦状态」。若辅助功能未授权，点击「打开辅助功能设置」授权当前安装版；若显示无法读取搜索框，点击「复制诊断信息」提交反馈。诊断信息不包含搜索词。也可在终端运行 `/Applications/词在上.app/Contents/MacOS/WordAbove --diagnose`。
+macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息；应用保留最近一次搜索状态与系统搜索窗口所属进程，不保留所输入的文字。
 
 ### 菜单
 

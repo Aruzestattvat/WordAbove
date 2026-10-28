@@ -16,6 +16,7 @@ import Translation
     @Published var translationRevision = 0
     @Published var trusted = AXIsProcessTrusted()
     @Published var spotlightStatus = SpotlightAccessState.notRunning
+    @Published var recentSpotlightStatus: SpotlightAccessState?
     @Published var dictionaryReady = false
     @Published var loading = false
     @Published var online: Bool = UserDefaults.standard.object(forKey: "online") as? Bool ?? true {
@@ -113,7 +114,7 @@ struct SetupView: View {
                 .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 5) {
                 Label(model.dictionaryReady ? "离线词库已就绪" : "离线词库缺失或损坏", systemImage: model.dictionaryReady ? "checkmark.circle" : "exclamationmark.triangle")
-                Label("聚焦状态：" + model.spotlightStatus.rawValue, systemImage: "magnifyingglass")
+                Label("聚焦状态：" + (model.recentSpotlightStatus ?? model.spotlightStatus).rawValue, systemImage: "magnifyingglass")
             }.font(.system(size: 12)).foregroundStyle(.secondary)
             HStack {
                 Text("自动互译：" + model.pair.title).font(.system(size: 13, weight: .medium))
@@ -313,7 +314,9 @@ class PassivePanel: NSPanel {
             "WordAbove \(version)",
             "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)",
             "辅助功能：\(AXIsProcessTrusted() ? "已授权" : "未授权")",
-            "Spotlight：\(observer.state.rawValue)",
+            "Spotlight 当前状态：\(observer.state.rawValue)",
+            "最近一次搜索：\(model.recentSpotlightStatus?.rawValue ?? "未检测到")",
+            "最近的系统搜索窗口：\(observer.recentSearchWindowOwners.isEmpty ? "未检测到" : observer.recentSearchWindowOwners.joined(separator: "、"))",
             "离线词库：\(dictionary.isReady ? "正常" : "缺失或损坏")",
             "语言对：\(model.pair.title)；方向：\(model.direction.title(for: model.pair))",
             "翻译语言包：\(preparation.allVerified ? "已验证 6/6" : "尚未验证全部方向")"
@@ -358,17 +361,24 @@ class PassivePanel: NSPanel {
         guard model.enabled, model.trusted else { if currentWord != nil { hide() }; return }
         let snapshot = observer.snapshot()
         if model.spotlightStatus != observer.state { model.spotlightStatus = observer.state }
+        if observer.state != .notRunning && observer.state != .empty {
+            if model.recentSpotlightStatus != observer.state { model.recentSpotlightStatus = observer.state }
+        }
         guard let snapshot else {
             if currentWord != nil { hide() }; return
         }
         guard let request = translationRequest(for: snapshot.text, pair: model.pair, direction: model.direction) else {
-            if !snapshot.text.isEmpty { model.spotlightStatus = .ignoredInput }
+            if !snapshot.text.isEmpty {
+                model.spotlightStatus = .ignoredInput
+                model.recentSpotlightStatus = .ignoredInput
+            }
             if currentWord != nil { hide() }; return
         }
         let word = "\(model.pair.rawValue)|\(model.direction.rawValue)|\(model.translationRevision)|\(request.text)"
         guard let screen = NSScreen.screens.max(by: { $0.frame.intersection(snapshot.frame).area < $1.frame.intersection(snapshot.frame).area }),
               let frame = cardFrame(above: snapshot.frame, visible: screen.visibleFrame) else {
             model.spotlightStatus = .noSpace
+            model.recentSpotlightStatus = .noSpace
             if currentWord != nil { hide() }
             return
         }
@@ -442,6 +452,7 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         print("辅助功能：\(AXIsProcessTrusted() ? "已授权" : "未授权")")
         print("离线词库：\(store.isReady ? "正常" : "缺失或损坏")")
         print("Spotlight：\(observer.state.rawValue)")
+        print("系统搜索窗口：\(observer.recentSearchWindowOwners.joined(separator: "、"))")
         print("检测到搜索框：\(snapshot == nil ? "否" : "是")")
         print("诊断不输出搜索内容。")
     }

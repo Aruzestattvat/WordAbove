@@ -8,7 +8,7 @@ struct SpotlightSnapshot {
 
 enum SpotlightAccessState: String {
     case permission = "辅助功能未授权"
-    case notRunning = "聚焦未打开"
+    case notRunning = "未检测到传统 Spotlight 进程（可能未打开或系统界面已更改）"
     case noWindow = "未找到聚焦窗口"
     case noSearchField = "无法读取聚焦搜索框"
     case noSpace = "搜索框上方空间不足，卡片无法显示"
@@ -19,6 +19,7 @@ enum SpotlightAccessState: String {
 
 final class SpotlightObserver {
     private(set) var state: SpotlightAccessState = .notRunning
+    private(set) var recentSearchWindowOwners: [String] = []
     private var cachedPID: pid_t = 0
     private var element: AXUIElement?
     private var field: AXUIElement?
@@ -58,11 +59,23 @@ final class SpotlightObserver {
     }
     func snapshot() -> SpotlightSnapshot? {
         guard AXIsProcessTrusted() else { state = .permission; field = nil; return nil }
+        // Window owner metadata helps diagnose macOS versions that move the
+        // search UI to a different process. Never record a window title or text.
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let searchOwners = Set(windows.compactMap { info -> String? in
+            guard let name = info[kCGWindowOwnerName as String] as? String,
+                  name.localizedCaseInsensitiveContains("Spotlight") || name.localizedCaseInsensitiveContains("Siri"),
+                  let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: bounds), rect.width >= 250, rect.height >= 40 else { return nil }
+            let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "未知"
+            return "\(name) [\(bundle)]"
+        })
+        if !searchOwners.isEmpty { recentSearchWindowOwners = searchOwners.sorted() }
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Spotlight").first else {
             state = .notRunning; field = nil; return nil
         }
         // Window metadata only; no screenshots, keystrokes, or other apps' text are read.
-        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         let frames: [CGRect] = windows.compactMap { info in
             guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == app.processIdentifier,
                   let bounds = info[kCGWindowBounds as String] as? NSDictionary,
