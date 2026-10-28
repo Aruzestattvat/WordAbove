@@ -32,28 +32,32 @@ struct DictionaryCard: View {
     var body: some View {
         GeometryReader { geo in
             if let translated = model.translated {
-                TranslationCard(content: translated, compact: geo.size.height < 170)
+                TranslationCard(content: translated, compact: geo.size.height < 170,
+                                tight: geo.size.height < 110)
             } else if let entry = model.entry {
                 let compact = geo.size.height < 170
-                VStack(alignment: .leading, spacing: compact ? 7 : 10) {
+                let tight = geo.size.height < 110
+                VStack(alignment: .leading, spacing: tight ? 2 : (compact ? 7 : 10)) {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(entry.word).font(.system(size: compact ? 23 : 27, weight: .semibold, design: .rounded)).lineLimit(1)
+                        Text(entry.word).font(.system(size: tight ? 19 : (compact ? 23 : 27), weight: .semibold, design: .rounded)).lineLimit(1)
                         if !entry.phonetic.isEmpty {
-                            Text(phonetic(entry.phonetic)).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
+                            Text(phonetic(entry.phonetic)).font(.system(size: tight ? 12 : 14)).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 4)
-                        Image(systemName: "character.book.closed").font(.system(size: 16, weight: .regular)).foregroundStyle(.tertiary)
+                        if !tight {
+                            Image(systemName: "character.book.closed").font(.system(size: 16, weight: .regular)).foregroundStyle(.tertiary)
+                        }
                     }
                     Text(meaning(entry.translation))
-                        .font(.system(size: 15)).lineSpacing(3).foregroundStyle(.primary)
+                        .font(.system(size: tight ? 13 : 15)).lineSpacing(tight ? 0 : 3).foregroundStyle(.primary)
                         .lineLimit(compact ? 1 : 2).frame(maxWidth: .infinity, alignment: .leading)
                     if geo.size.height >= 140 { Divider().opacity(0.65) }
                     if !entry.example.isEmpty {
-                        Text(entry.example).font(.system(size: 13.5)).foregroundStyle(.secondary)
-                            .lineSpacing(3).lineLimit(compact ? 2 : 3).fixedSize(horizontal: false, vertical: true)
+                        Text(entry.example).font(.system(size: tight ? 11.5 : 13.5)).foregroundStyle(.secondary)
+                            .lineSpacing(tight ? 0 : 3).lineLimit(tight ? 1 : (compact ? 2 : 3))
                     } else {
                         Text(model.loading ? "正在补充例句…" : "该词暂无可用例句")
-                            .font(.system(size: 12)).foregroundStyle(.tertiary)
+                            .font(.system(size: tight ? 11 : 12)).foregroundStyle(.tertiary)
                     }
                     Spacer(minLength: 0)
                     if !compact {
@@ -64,7 +68,7 @@ struct DictionaryCard: View {
                         }.font(.system(size: 9.5)).foregroundStyle(.tertiary).lineLimit(1)
                     }
                 }
-                .padding(.horizontal, 20).padding(.vertical, compact ? 12 : 16)
+                .padding(.horizontal, tight ? 16 : 20).padding(.vertical, tight ? 7 : (compact ? 12 : 16))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .accessibilityElement(children: .combine)
             }
@@ -177,6 +181,7 @@ class PassivePanel: NSPanel {
         timer?.tolerance = 0.04
         if !model.trusted || CommandLine.arguments.contains("--settings") { showSetup() }
         if CommandLine.arguments.contains("--preview") { showPreview() }
+        if CommandLine.arguments.contains("--preview-compact") { showCardPreview(height: 72) }
         if CommandLine.arguments.contains("--languages") { showLanguageSetup() }
         Task { await preparation.refresh(); rebuildMenu() }
     }
@@ -341,8 +346,11 @@ class PassivePanel: NSPanel {
         } catch { model.note = "无法修改登录项：\(error.localizedDescription)" }
     }
     @objc func showPreview() {
+        showCardPreview(height: 206)
+    }
+    private func showCardPreview(height: CGFloat) {
         let sample = Model(); sample.entry = dictionary.lookup("serendipity")
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 206), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: height), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "词在上 · 卡片预览"; window.contentView = cardContent(sample)
         window.isReleasedWhenClosed = false; window.center()
         previewWindow?.close(); previewWindow = window
@@ -491,13 +499,18 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         let middleField = CGRect(x: 370, y: 550, width: 700, height: 60)
         let aboveField = cardFrame(around: fullWindow, searchField: middleField, visible: screen)!
         precondition(aboveField.minY > middleField.maxY && screen.contains(aboveField))
-        let topField = CGRect(x: 370, y: 750, width: 700, height: 60)
-        let sideCard = cardFrame(around: fullWindow, searchField: topField, visible: screen)!
-        precondition(!sideCard.intersects(topField) && screen.contains(sideCard))
-        let narrow = CGRect(x: 0, y: 0, width: 1024, height: 700)
-        let narrowField = CGRect(x: 100, y: 610, width: 824, height: 60)
-        let belowField = cardFrame(around: narrow, searchField: narrowField, visible: narrow)!
-        precondition(belowField.maxY < narrowField.minY && narrow.contains(belowField))
+        let topField = CGRect(x: 370, y: 720, width: 700, height: 60)
+        let shortCard = cardFrame(around: fullWindow, searchField: topField, visible: screen)!
+        precondition(shortCard.minY > topField.maxY && shortCard.height >= 72 && shortCard.height < 100)
+        precondition(shortCard.minX == topField.minX && shortCard.maxX == topField.maxX)
+        let campoWindow = CGRect(x: 640, y: 488, width: 640, height: 467)
+        let campoField = CGRect(x: 701, y: 886, width: 560, height: 58)
+        let remoteScreen = CGRect(x: 0, y: 0, width: 1920, height: 1040)
+        let campoCard = cardFrame(around: campoWindow, searchField: campoField, visible: remoteScreen)!
+        precondition(campoCard.minY > campoField.maxY && campoCard.height == 84)
+        precondition(campoCard.minX == campoField.minX && campoCard.maxX == campoField.maxX)
+        let impossibleField = CGRect(x: 370, y: 800, width: 700, height: 60)
+        precondition(cardFrame(around: fullWindow, searchField: impossibleField, visible: screen) == nil)
         print("PASS: offline entries, IPA, Chinese meanings, examples, input filtering, missing words, Spotlight placement on macOS 26/27, screen edges, secondary display.")
     }
 }

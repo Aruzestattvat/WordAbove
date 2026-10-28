@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.5 (build 8)
+- **Version**: 1.1.6 (build 9)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -205,17 +205,22 @@ bash Scripts/build.sh --self-test     # app-level self-test
 - Automatic translation needs **macOS 26+**. On macOS 14/15 the offline English dictionary still works, but the
   translation features report that a newer system is required.
 - Spotlight coupling relies on the Accessibility API and window metadata; a future macOS update could change it.
-- macOS 27 moved the Command-Space overlay to `com.apple.campo`. Version 1.1.5 recognizes that host while
-  excluding Campo's frontmost Siri chat window and adapts the card placement. The final placement still needs
-  verification on a macOS 27 device.
+- macOS 27 moved the Command-Space overlay to `com.apple.campo`. The app recognizes that host while
+  excluding Campo's frontmost Siri chat window. Card placement is recalculated from the current screen and
+  search-field position whenever Spotlight moves.
 - After rebuilding or updating an ad-hoc signed app, re-grant Accessibility if the card stops appearing:
   `tccutil reset Accessibility local.wordabove.SpotlightDictionary` — reset only this app, never others.
+
+## 1.1.6 changes
+
+- Keep the card above the search input. Fit its height to the space between the field and menu bar, using a
+  compact three-line dictionary layout when that space is short. Never move it to the side or below Spotlight.
 
 ## 1.1.5 changes
 
 - Position the card from the actual Accessibility frame of the search input on macOS 27 when the host window
   extends to the top edge. The traditional above-window placement remains first choice.
-- When there is genuinely too little space above the field, place the card beside it, or below it on narrow screens.
+- A temporary side/below fallback helped diagnose the macOS 27 layout; 1.1.6 replaces it with top-only placement.
 
 ## 1.1.4 changes
 
@@ -279,7 +284,7 @@ macOS 菜单栏翻译辅助应用。打开 Spotlight（⌘ 空格）并输入文
 如果输入 `hello` 后完全没有上方卡片，请打开菜单栏的「设置…」查看「离线词库」和「聚焦状态」。若辅助功能未授权，点击「打开辅助功能设置」授权当前安装版；若显示无法读取搜索框，点击「复制诊断信息」提交反馈。诊断信息不包含搜索词。也可在终端运行 `/Applications/词在上.app/Contents/MacOS/WordAbove --diagnose`。
 macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息；应用保留最近一次搜索状态与系统搜索窗口所属进程，不保留所输入的文字。
 1.1.4 开始识别 macOS 27 的 `com.apple.campo` 搜索浮窗；普通 Siri 聊天窗口不会被当作 Spotlight 读取。
-1.1.5 使用搜索输入框的实际位置摆放卡片；屏幕顶端空间不足时，会自动放在侧边或下方。
+1.1.6 使用搜索输入框的实际位置摆放卡片，并按当前屏幕上方的可用高度缩小排版；卡片只出现在搜索框上方。
 
 ### 菜单
 

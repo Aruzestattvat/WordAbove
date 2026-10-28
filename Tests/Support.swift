@@ -109,10 +109,14 @@ actor ExampleService {
 // MARK: - 源自 Sources/SpotlightObserver.swift（仅取与窗口定位有关的部分）
 
 func cardFrame(above spotlight: CGRect, visible: CGRect) -> CGRect? {
-    let gap: CGFloat = 12
+    cardFrame(above: spotlight, visible: visible, gap: 12, topInset: 8, minimumHeight: 100)
+}
+
+private func cardFrame(above spotlight: CGRect, visible: CGRect,
+                       gap: CGFloat, topInset: CGFloat, minimumHeight: CGFloat) -> CGRect? {
     let y = spotlight.maxY + gap
-    let available = visible.maxY - y - 8
-    guard available >= 100 else { return nil }
+    let available = visible.maxY - y - topInset
+    guard spotlight.intersects(visible), available >= minimumHeight else { return nil }
     // Match both Spotlight edges; only constrain the width at a screen boundary.
     let width = min(spotlight.width, visible.width - 24)
     let height = min(206, available)
@@ -122,36 +126,11 @@ func cardFrame(above spotlight: CGRect, visible: CGRect) -> CGRect? {
 
 func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect) -> CGRect? {
     if let aboveWindow = cardFrame(above: window, visible: visible) { return aboveWindow }
-    let field = searchField ?? window
-    guard field.intersects(visible) else { return nil }
-    // Campo's window can extend to the top of the display. Anchor to the
-    // actual input field before deciding there is no room above it.
-    if let aboveField = cardFrame(above: field, visible: visible) { return aboveField }
-    let gap: CGFloat = 12
-    let height = min(206, visible.height - 24)
-    guard height >= 100 else { return nil }
-    let rightSpace = visible.maxX - field.maxX - gap - 12
-    let leftSpace = field.minX - visible.minX - gap - 12
-    let useRight = rightSpace >= leftSpace
-    let sideSpace = useRight ? rightSpace : leftSpace
-    if sideSpace >= 300 {
-        let width = min(560, sideSpace)
-        let x = useRight ? field.maxX + gap : field.minX - gap - width
-        let y = min(max(field.midY - height / 2, visible.minY + 12), visible.maxY - height - 12)
-        return CGRect(x: x, y: y, width: width, height: height)
-    }
-    // On a narrow display the card may need to sit below the input. Prefer
-    // below the whole result window so it does not obscure its suggestions.
-    let width = min(field.width, visible.width - 24)
-    let x = min(max(field.midX - width / 2, visible.minX + 12), visible.maxX - width - 12)
-    for bottom in [window.minY, field.minY] {
-        let available = bottom - gap - visible.minY - 8
-        if available >= 100 {
-            return CGRect(x: x, y: bottom - gap - min(206, available),
-                          width: width, height: min(206, available))
-        }
-    }
-    return nil
+    // Campo's result window reaches almost to the menu bar on macOS 27.
+    // Keep the card above its input and reduce its height to the room available.
+    // This intentionally has no side or below fallback.
+    return cardFrame(above: searchField ?? window, visible: visible,
+                     gap: 8, topInset: 4, minimumHeight: 72)
 }
 
 // MARK: - 源自 Sources/RoundedMaterialView.swift
