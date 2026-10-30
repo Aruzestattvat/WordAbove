@@ -5,6 +5,7 @@ struct SpotlightSnapshot {
     let text: String
     let frame: CGRect // Search window in AppKit screen coordinates
     let searchFieldFrame: CGRect?
+    let hostBundleID: String
 }
 
 enum SpotlightAccessState: String {
@@ -55,6 +56,16 @@ func preferredCompactCardHeight(fieldHeight: CGFloat, display: DisplaySizeClass)
     return min(96, max(72, (fieldHeight * ratio).rounded()))
 }
 
+func preferredSearchPanelFrame(_ frames: [CGRect], field: CGRect, visible: CGRect) -> CGRect? {
+    let desiredWidth = field.width + 80
+    return frames.filter { frame in
+        frame.width >= field.width + 24 &&
+        frame.width <= min(field.width + 250, visible.width * 0.95) &&
+        frame.minX <= field.minX + 8 && frame.maxX >= field.maxX - 8 &&
+        frame.minY <= field.minY + 12 && frame.maxY >= field.maxY - 12
+    }.min { abs($0.width - desiredWidth) < abs($1.width - desiredWidth) }
+}
+
 func spotlightHostBundleIDs(macOSMajor: Int) -> [String] {
     // The Command-Space overlay moved to Siri AI (Campo) in macOS 27.
     // Classic Spotlight can still be enabled on that system, so keep both.
@@ -75,6 +86,7 @@ final class SpotlightObserver {
     private var cachedPID: pid_t = 0
     private var element: AXUIElement?
     private var field: AXUIElement?
+    private var stablePanelFrame: CGRect?
 
     private func attribute(_ element: AXUIElement, _ key: CFString) -> CFTypeRef? {
         var value: CFTypeRef?
@@ -109,20 +121,35 @@ final class SpotlightObserver {
         }
         return nil
     }
-    private func frameOfSearchField(_ field: AXUIElement) -> CGRect? {
-        guard let position = attribute(field, kAXPositionAttribute as CFString),
-              let size = attribute(field, kAXSizeAttribute as CFString),
+    private func frameOfElement(_ element: AXUIElement) -> CGRect? {
+        guard let position = attribute(element, kAXPositionAttribute as CFString),
+              let size = attribute(element, kAXSizeAttribute as CFString),
               CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero
         var dimensions = CGSize.zero
         guard AXValueGetValue(unsafeBitCast(position, to: AXValue.self), .cgPoint, &point),
               AXValueGetValue(unsafeBitCast(size, to: AXValue.self), .cgSize, &dimensions),
               point.x.isFinite, point.y.isFinite, dimensions.width.isFinite, dimensions.height.isFinite,
-              dimensions.width >= 150, dimensions.height >= 20, dimensions.height <= 160 else { return nil }
+              dimensions.width >= 150, dimensions.height >= 20 else { return nil }
         // Accessibility uses a top-left origin; AppKit uses bottom-left.
         let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
         return CGRect(x: point.x, y: primaryTop - point.y - dimensions.height,
                       width: dimensions.width, height: dimensions.height)
+    }
+    private func frameOfSearchField(_ field: AXUIElement) -> CGRect? {
+        guard let frame = frameOfElement(field), frame.height <= 160 else { return nil }
+        return frame
+    }
+    private func parentFrames(of field: AXUIElement) -> [CGRect] {
+        var frames: [CGRect] = []
+        var element = field
+        for _ in 0..<7 {
+            guard let parent = attribute(element, kAXParentAttribute as CFString),
+                  CFGetTypeID(parent) == AXUIElementGetTypeID() else { break }
+            element = unsafeBitCast(parent, to: AXUIElement.self)
+            if let frame = frameOfElement(element) { frames.append(frame) }
+        }
+        return frames
     }
     func snapshot() -> SpotlightSnapshot? {
         guard AXIsProcessTrusted() else { state = .permission; field = nil; return nil }
@@ -146,7 +173,7 @@ final class SpotlightObserver {
             mayReadSpotlightHost(bundleID: $0.bundleIdentifier ?? "", isActive: $0.isActive, macOSMajor: major)
         }
         guard !hosts.isEmpty else {
-            state = .notRunning; field = nil; return nil
+            state = .notRunning; field = nil; stablePanelFrame = nil; return nil
         }
         // Window metadata only; no screenshots, keystrokes, or other apps' text are read.
         let visibleHosts: [(NSRunningApplication, CGRect)] = hosts.compactMap { app in
@@ -161,7 +188,7 @@ final class SpotlightObserver {
             return (app, frame)
         }
         guard let (app, screenFrame) = visibleHosts.first else {
-            state = .noWindow; field = nil; return nil
+            state = .noWindow; field = nil; stablePanelFrame = nil; return nil
         }
         if cachedPID != app.processIdentifier || element == nil {
             cachedPID = app.processIdentifier
@@ -200,13 +227,37 @@ final class SpotlightObserver {
         guard let raw else { state = .noSearchField; return nil }
         state = raw.isEmpty ? .empty : .ready
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-        let frame = CGRect(x: screenFrame.minX, y: primaryHeight - screenFrame.maxY, width: screenFrame.width, height: screenFrame.height)
+        let windowFrame = CGRect(x: screenFrame.minX, y: primaryHeight - screenFrame.maxY, width: screenFrame.width, height: screenFrame.height)
         let searchFieldFrame = field.flatMap(frameOfSearchField)
+        var frame = windowFrame
+        if app.bundleIdentifier == "com.apple.campo", let searchFieldFrame {
+            let visible = NSScreen.screens.max {
+                $0.frame.intersection(searchFieldFrame).area < $1.frame.intersection(searchFieldFrame).area
+            }?.visibleFrame ?? windowFrame
+            let cgFrames: [CGRect] = windows.compactMap { info in
+                guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == app.processIdentifier,
+                      let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                      let rect = CGRect(dictionaryRepresentation: bounds) else { return nil }
+                return CGRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
+            }
+            let cached = stablePanelFrame.flatMap {
+                preferredSearchPanelFrame([$0], field: searchFieldFrame, visible: visible)
+            }
+            let fromWindows = preferredSearchPanelFrame(cgFrames, field: searchFieldFrame, visible: visible)
+            let panel = cached ?? fromWindows ?? field.flatMap {
+                preferredSearchPanelFrame(parentFrames(of: $0), field: searchFieldFrame, visible: visible)
+            }
+            if let panel {
+                frame = panel
+                stablePanelFrame = panel
+            }
+        }
         func description(_ rect: CGRect) -> String {
             "x=\(Int(rect.minX)) y=\(Int(rect.minY)) w=\(Int(rect.width)) h=\(Int(rect.height))"
         }
         recentGeometry = "窗口(\(description(frame)))；输入框(\(searchFieldFrame.map(description) ?? "位置不可读"))"
-        return SpotlightSnapshot(text: raw, frame: frame, searchFieldFrame: searchFieldFrame)
+        return SpotlightSnapshot(text: raw, frame: frame, searchFieldFrame: searchFieldFrame,
+                                 hostBundleID: app.bundleIdentifier ?? "")
     }
 }
 
@@ -229,7 +280,25 @@ private func cardFrame(above spotlight: CGRect, visible: CGRect,
 }
 
 func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
-               display: DisplaySizeClass = .other) -> CGRect? {
+               display: DisplaySizeClass = .other, campo: Bool = false) -> CGRect? {
+    if campo {
+        guard let field = searchField else { return nil }
+        // Campo changes its CG window while suggestions expand. The field
+        // supplies the vertical anchor; the outer search panel supplies both edges.
+        let shell: CGRect
+        if let panel = preferredSearchPanelFrame([window], field: field, visible: visible) {
+            shell = panel
+        } else {
+            let leftInset = min(64, max(40, field.height * 1.05))
+            let rightInset = min(24, max(18, field.height * 0.35))
+            shell = CGRect(x: field.minX - leftInset, y: field.minY,
+                           width: field.width + leftInset + rightInset, height: field.height)
+        }
+        let anchor = CGRect(x: shell.minX, y: field.minY, width: shell.width, height: field.height)
+        return cardFrame(above: anchor, visible: visible, gap: 8, topInset: 4,
+                         minimumHeight: 72,
+                         maximumHeight: preferredCompactCardHeight(fieldHeight: field.height, display: display))
+    }
     if let aboveWindow = cardFrame(above: window, visible: visible) { return aboveWindow }
     // Campo's result window reaches almost to the menu bar on macOS 27.
     // Keep the card above its input and reduce its height to the room available.
@@ -238,4 +307,12 @@ func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
     return cardFrame(above: field, visible: visible, gap: 8, topInset: 4,
                      minimumHeight: 72,
                      maximumHeight: preferredCompactCardHeight(fieldHeight: field.height, display: display))
+}
+
+func stabilizedCardFrame(_ proposed: CGRect, previous: CGRect?, visible: CGRect,
+                         campo: Bool) -> CGRect {
+    guard campo, let previous, visible.contains(previous),
+          abs(previous.midX - proposed.midX) < 60,
+          abs(previous.minY - proposed.minY) < 20 else { return proposed }
+    return previous
 }

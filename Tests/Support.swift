@@ -159,6 +159,16 @@ func preferredCompactCardHeight(fieldHeight: CGFloat, display: DisplaySizeClass)
     return min(96, max(72, (fieldHeight * ratio).rounded()))
 }
 
+func preferredSearchPanelFrame(_ frames: [CGRect], field: CGRect, visible: CGRect) -> CGRect? {
+    let desiredWidth = field.width + 80
+    return frames.filter { frame in
+        frame.width >= field.width + 24 &&
+        frame.width <= min(field.width + 250, visible.width * 0.95) &&
+        frame.minX <= field.minX + 8 && frame.maxX >= field.maxX - 8 &&
+        frame.minY <= field.minY + 12 && frame.maxY >= field.maxY - 12
+    }.min { abs($0.width - desiredWidth) < abs($1.width - desiredWidth) }
+}
+
 func cardFrame(above spotlight: CGRect, visible: CGRect) -> CGRect? {
     cardFrame(above: spotlight, visible: visible, gap: 12, topInset: 8,
               minimumHeight: 100, maximumHeight: 206)
@@ -178,7 +188,25 @@ private func cardFrame(above spotlight: CGRect, visible: CGRect,
 }
 
 func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
-               display: DisplaySizeClass = .other) -> CGRect? {
+               display: DisplaySizeClass = .other, campo: Bool = false) -> CGRect? {
+    if campo {
+        guard let field = searchField else { return nil }
+        // Campo changes its CG window while suggestions expand. The field
+        // supplies the vertical anchor; the outer search panel supplies both edges.
+        let shell: CGRect
+        if let panel = preferredSearchPanelFrame([window], field: field, visible: visible) {
+            shell = panel
+        } else {
+            let leftInset = min(64, max(40, field.height * 1.05))
+            let rightInset = min(24, max(18, field.height * 0.35))
+            shell = CGRect(x: field.minX - leftInset, y: field.minY,
+                           width: field.width + leftInset + rightInset, height: field.height)
+        }
+        let anchor = CGRect(x: shell.minX, y: field.minY, width: shell.width, height: field.height)
+        return cardFrame(above: anchor, visible: visible, gap: 8, topInset: 4,
+                         minimumHeight: 72,
+                         maximumHeight: preferredCompactCardHeight(fieldHeight: field.height, display: display))
+    }
     if let aboveWindow = cardFrame(above: window, visible: visible) { return aboveWindow }
     // Campo's result window reaches almost to the menu bar on macOS 27.
     // Keep the card above its input and reduce its height to the room available.
@@ -187,6 +215,14 @@ func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
     return cardFrame(above: field, visible: visible, gap: 8, topInset: 4,
                      minimumHeight: 72,
                      maximumHeight: preferredCompactCardHeight(fieldHeight: field.height, display: display))
+}
+
+func stabilizedCardFrame(_ proposed: CGRect, previous: CGRect?, visible: CGRect,
+                         campo: Bool) -> CGRect {
+    guard campo, let previous, visible.contains(previous),
+          abs(previous.midX - proposed.midX) < 60,
+          abs(previous.minY - proposed.minY) < 20 else { return proposed }
+    return previous
 }
 
 // MARK: - 源自 Sources/RoundedMaterialView.swift

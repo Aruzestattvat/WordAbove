@@ -159,6 +159,7 @@ class PassivePanel: NSPanel {
     var currentWord: String?
     var lastFrame: CGRect?
     var recentPlacement: String?
+    var transientSearchMisses = 0
     var tickCount = 0
     var lastOnline = true
     private var languageOfferChecked = false
@@ -372,8 +373,13 @@ class PassivePanel: NSPanel {
             if model.recentSpotlightStatus != observer.state { model.recentSpotlightStatus = observer.state }
         }
         guard let snapshot else {
+            if observer.state == .noWindow || observer.state == .noSearchField {
+                transientSearchMisses += 1
+                if transientSearchMisses <= 2 { return }
+            }
             if currentWord != nil { hide() }; return
         }
+        transientSearchMisses = 0
         guard let request = translationRequest(for: snapshot.text, pair: model.pair, direction: model.direction) else {
             if !snapshot.text.isEmpty {
                 model.spotlightStatus = .ignoredInput
@@ -391,40 +397,47 @@ class PassivePanel: NSPanel {
         }
         let display = displaySizeClass(for: screen)
         let visible = screen.visibleFrame
-        guard let frame = cardFrame(around: snapshot.frame, searchField: snapshot.searchFieldFrame,
-                                    visible: visible, display: display) else {
+        let isCampo = snapshot.hostBundleID == "com.apple.campo"
+        guard let proposedFrame = cardFrame(around: snapshot.frame, searchField: snapshot.searchFieldFrame,
+                                            visible: visible, display: display, campo: isCampo) else {
             recentPlacement = "\(display.rawValue)；可用屏幕 \(Int(visible.width))×\(Int(visible.height))；上方不足 72 点"
             model.spotlightStatus = .noSpace
             model.recentSpotlightStatus = .noSpace
             if currentWord != nil { hide() }
             return
         }
+        let frame = stabilizedCardFrame(proposedFrame, previous: lastFrame, visible: visible, campo: isCampo)
         recentPlacement = "\(display.rawValue)；可用屏幕 \(Int(visible.width))×\(Int(visible.height))；卡片 \(Int(frame.width))×\(Int(frame.height))"
         if lastFrame != frame { panel.setFrame(frame, display: true); lastFrame = frame }
         if lastOnline != model.online { lastOnline = model.online; currentWord = nil; lookupTask?.cancel() }
         guard currentWord != word else { return }
         currentWord = word
-        lookupTask?.cancel(); model.loading = false; model.entry = nil; model.translated = nil; panel.orderOut(nil)
-        lookupTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled, let self, self.currentWord == word else { return }
-            // Preserve the offline dictionary experience for English → Chinese.
-            if request.source == .english, request.target == .chinese,
-               let key = normalizedWord(request.text), let entry = self.dictionary.lookup(key) {
-                self.model.entry = entry
-                self.panel.orderFrontRegardless()
-                if self.model.online && (entry.example.isEmpty || displayPhonetic(entry.phonetic) == nil) {
-                    self.model.loading = true
+        lookupTask?.cancel(); lookupTask = nil; model.loading = false
+        // Offline entries can replace their text immediately. Keep the panel
+        // visible and at the same frame while the user types another letter.
+        if request.source == .english, request.target == .chinese,
+           let key = normalizedWord(request.text), let entry = dictionary.lookup(key) {
+            model.translated = nil
+            model.entry = entry
+            if !panel.isVisible { panel.orderFrontRegardless() }
+            if model.online && (entry.example.isEmpty || displayPhonetic(entry.phonetic) == nil) {
+                model.loading = true
+                lookupTask = Task { [weak self] in
                     try? await Task.sleep(for: .milliseconds(400))
-                    guard !Task.isCancelled, self.currentWord == word else { return }
+                    guard !Task.isCancelled, let self, self.currentWord == word else { return }
                     let supplemented = await self.examples.supplement(entry)
                     guard !Task.isCancelled, self.currentWord == word else { return }
                     self.model.entry = supplemented; self.model.loading = false
                 }
-                return
             }
-            self.model.translated = TranslationCardContent(request: request, text: nil, message: nil)
-            self.panel.orderFrontRegardless()
+            return
+        }
+        model.entry = nil
+        model.translated = TranslationCardContent(request: request, text: nil, message: nil)
+        if !panel.isVisible { panel.orderFrontRegardless() }
+        lookupTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let self, self.currentWord == word else { return }
             do {
                 let text = try await self.translator.translate(request)
                 guard !Task.isCancelled, self.currentWord == word else { return }
@@ -542,6 +555,22 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
             precondition(fitted.height == preferredCompactCardHeight(fieldHeight: field.height, display: display))
             precondition(visible.contains(fitted))
         }
+        let animatedScreen = CGRect(x: 0, y: 0, width: 1024, height: 800)
+        let compactWindow = CGRect(x: 192, y: 598, width: 640, height: 60)
+        let animatedField = CGRect(x: 258, y: 600, width: 550, height: 52)
+        precondition(preferredSearchPanelFrame([animatedScreen, compactWindow],
+                                               field: animatedField, visible: animatedScreen) == compactWindow)
+        let firstCampoCard = cardFrame(around: compactWindow, searchField: animatedField,
+                                       visible: animatedScreen, campo: true)!
+        precondition(firstCampoCard.minX == compactWindow.minX && firstCampoCard.maxX == compactWindow.maxX)
+        precondition(firstCampoCard.height == 72)
+        let expandedCampoCard = cardFrame(around: animatedScreen, searchField: animatedField,
+                                          visible: animatedScreen, campo: true)!
+        precondition(expandedCampoCard.width != firstCampoCard.width)
+        precondition(stabilizedCardFrame(expandedCampoCard, previous: firstCampoCard,
+                                         visible: animatedScreen, campo: true) == firstCampoCard)
+        precondition(cardFrame(around: animatedScreen, searchField: nil,
+                               visible: animatedScreen, campo: true) == nil)
         let impossibleField = CGRect(x: 370, y: 800, width: 700, height: 60)
         precondition(cardFrame(around: fullWindow, searchField: impossibleField, visible: screen) == nil)
         print("PASS: offline entries, IPA, Chinese meanings, examples, input filtering, missing words, Spotlight placement on macOS 26/27, screen edges, secondary display.")

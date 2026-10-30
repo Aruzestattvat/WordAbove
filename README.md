@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.8 (build 11)
+- **Version**: 1.1.9 (build 12)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -211,6 +211,12 @@ bash Scripts/build.sh --self-test     # app-level self-test
 - After rebuilding or updating an ad-hoc signed app, re-grant Accessibility if the card stops appearing:
   `tccutil reset Accessibility local.wordabove.SpotlightDictionary` — reset only this app, never others.
 
+## 1.1.9 changes
+
+- Keep the macOS 27 card aligned to Spotlight's outer search panel even while Campo expands its suggestion window.
+- Use the input field for the vertical anchor from the start and preserve card geometry during one search session.
+- Update offline dictionary text in the visible card as typing changes, without hiding and reopening the panel.
+
 ## 1.1.8 changes
 
 - Detect the built-in display's physical size (13, 14 or 16 inches) and size the top card in proportion to
@@ -299,6 +305,7 @@ macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息�
 1.1.6 使用搜索输入框的实际位置摆放卡片，并按当前屏幕上方的可用高度缩小排版；卡片只出现在搜索框上方。
 1.1.7 优化顶部紧凑卡片的垂直留白，并补齐 `app` 的音标与例句；无效音标不再显示乱码。
 1.1.8 根据 13、14、16 寸内屏及当前 Spotlight 输入框尺寸动态调整顶部卡片；外接屏也按实际坐标适配。诊断信息新增显示器和卡片尺寸。
+1.1.9 修复 macOS 27 搜索结果展开时卡片先大后小、重新出现的闪烁；卡片与 Spotlight 外框左右对齐，连续输入时只更新内容。
 
 ### 菜单
 
