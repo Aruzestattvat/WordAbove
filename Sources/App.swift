@@ -173,10 +173,10 @@ class PassivePanel: NSPanel {
         statusItem.button?.image = NSImage(systemSymbolName: "character.book.closed", accessibilityDescription: "词在上")
         statusItem.button?.toolTip = "词在上 · Spotlight 自动互译"
         rebuildMenu()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        timer?.tolerance = 0.04
+        timer?.tolerance = 0.02
         if !model.trusted || CommandLine.arguments.contains("--settings") { showSetup() }
         if CommandLine.arguments.contains("--preview") { showPreview() }
         if CommandLine.arguments.contains("--preview-compact") { showCardPreview(height: 78) }
@@ -195,8 +195,24 @@ class PassivePanel: NSPanel {
         panel.contentView = cardContent(model)
     }
     func cardContent(_ model: Model) -> NSView {
-        let effect = RoundedMaterialView(frame: NSRect(x: 0, y: 0, width: 640, height: 206))
         let hosting = NSHostingView(rootView: DictionaryCard(model: model))
+        if #available(macOS 26.0, *) {
+            // The system's regular glass follows the macOS 27 transparency
+            // slider, appearance, and accessibility contrast preferences.
+            let glass = NSGlassEffectView(frame: NSRect(x: 0, y: 0, width: 640, height: 206))
+            glass.style = .regular
+            glass.cornerRadius = RoundedMaterialView.radius
+            hosting.translatesAutoresizingMaskIntoConstraints = false
+            glass.contentView = hosting
+            NSLayoutConstraint.activate([
+                hosting.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+                hosting.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+                hosting.topAnchor.constraint(equalTo: glass.topAnchor),
+                hosting.bottomAnchor.constraint(equalTo: glass.bottomAnchor)
+            ])
+            return glass
+        }
+        let effect = RoundedMaterialView(frame: NSRect(x: 0, y: 0, width: 640, height: 206))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         effect.addSubview(hosting)
         NSLayoutConstraint.activate([
@@ -375,7 +391,7 @@ class PassivePanel: NSPanel {
         guard let snapshot else {
             if observer.state == .noWindow || observer.state == .noSearchField {
                 transientSearchMisses += 1
-                if transientSearchMisses <= 2 { return }
+                if transientSearchMisses <= 1 { return }
             }
             if currentWord != nil { hide() }; return
         }
@@ -531,30 +547,41 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         let campoWindow = CGRect(x: 640, y: 488, width: 640, height: 467)
         let campoField = CGRect(x: 701, y: 886, width: 560, height: 58)
         let remoteScreen = CGRect(x: 0, y: 0, width: 1920, height: 1040)
-        let campoCard = cardFrame(around: campoWindow, searchField: campoField, visible: remoteScreen)!
-        precondition(campoCard.minY > campoField.maxY && campoCard.height == 78)
-        precondition(campoCard.minX == campoField.minX && campoCard.maxX == campoField.maxX)
+        let campoCard = cardFrame(around: campoWindow, searchField: campoField,
+                                  visible: remoteScreen, campo: true)!
+        precondition(campoCard.minY > campoField.maxY && campoCard.height == 84)
+        precondition(campoCard.minX == campoWindow.minX && campoCard.maxX == campoWindow.maxX)
         let tallerScreen = CGRect(x: 0, y: 0, width: 1920, height: 1050)
-        precondition(cardFrame(around: campoWindow, searchField: campoField, visible: tallerScreen)?.height == 78)
+        precondition(cardFrame(around: campoWindow, searchField: campoField,
+                               visible: tallerScreen, campo: true)?.height == 81)
         precondition(displaySizeClass(diagonalInches: 13.6, isBuiltIn: true) == .inch13)
         precondition(displaySizeClass(diagonalInches: 14.2, isBuiltIn: true) == .inch14)
         precondition(displaySizeClass(diagonalInches: 16.2, isBuiltIn: true) == .inch16)
         precondition(displaySizeClass(diagonalInches: 16.2, isBuiltIn: false) == .other)
-        let compactHeights = [DisplaySizeClass.inch13, .inch14, .inch16].map {
-            preferredCompactCardHeight(fieldHeight: 58, display: $0)
-        }
-        precondition(compactHeights[0] < compactHeights[1] && compactHeights[1] < compactHeights[2])
+        var fittedHeights: [CGFloat] = []
         for (display, screenSize, field) in [
             (DisplaySizeClass.inch13, CGSize(width: 1280, height: 800), CGRect(x: 360, y: 650, width: 560, height: 52)),
             (.inch14, CGSize(width: 1512, height: 982), CGRect(x: 476, y: 790, width: 560, height: 58)),
             (.inch16, CGSize(width: 1728, height: 1117), CGRect(x: 584, y: 910, width: 560, height: 62))
         ] {
             let visible = CGRect(origin: .zero, size: screenSize)
-            let fitted = cardFrame(around: visible, searchField: field, visible: visible, display: display)!
-            precondition(fitted.minY > field.maxY && fitted.minX == field.minX)
-            precondition(fitted.height == preferredCompactCardHeight(fieldHeight: field.height, display: display))
+            let shell = CGRect(x: field.minX - 60, y: field.minY,
+                               width: field.width + 80, height: field.height)
+            let fitted = cardFrame(around: shell, searchField: field, visible: visible,
+                                   display: display, campo: true)!
+            precondition(fitted.minY > field.maxY && fitted.minX == shell.minX)
             precondition(visible.contains(fitted))
+            fittedHeights.append(fitted.height)
         }
+        precondition(fittedHeights[0] < fittedHeights[1] && fittedHeights[1] < fittedHeights[2])
+        // 1470×956 screenshot: fill the marked top region with 10 pt below the
+        // menu bar and 15 pt above the search field, matching the shell edges.
+        let markedVisible = CGRect(x: 0, y: 0, width: 1470, height: 918)
+        let markedShell = CGRect(x: 415, y: 0, width: 640, height: 764)
+        let markedField = CGRect(x: 477, y: 724, width: 560, height: 30)
+        let markedCard = cardFrame(around: markedShell, searchField: markedField,
+                                   visible: markedVisible, campo: true)!
+        precondition(markedCard == CGRect(x: 415, y: 769, width: 640, height: 139))
         let animatedScreen = CGRect(x: 0, y: 0, width: 1024, height: 800)
         let compactWindow = CGRect(x: 192, y: 598, width: 640, height: 60)
         let animatedField = CGRect(x: 258, y: 600, width: 550, height: 52)
@@ -563,7 +590,7 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         let firstCampoCard = cardFrame(around: compactWindow, searchField: animatedField,
                                        visible: animatedScreen, campo: true)!
         precondition(firstCampoCard.minX == compactWindow.minX && firstCampoCard.maxX == compactWindow.maxX)
-        precondition(firstCampoCard.height == 72)
+        precondition(firstCampoCard.height == 123)
         let expandedCampoCard = cardFrame(around: animatedScreen, searchField: animatedField,
                                           visible: animatedScreen, campo: true)!
         precondition(expandedCampoCard.width != firstCampoCard.width)

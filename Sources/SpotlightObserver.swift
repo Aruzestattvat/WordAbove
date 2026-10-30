@@ -45,17 +45,6 @@ func displaySizeClass(for screen: NSScreen) -> DisplaySizeClass {
                             isBuiltIn: CGDisplayIsBuiltin(id) != 0)
 }
 
-func preferredCompactCardHeight(fieldHeight: CGFloat, display: DisplaySizeClass) -> CGFloat {
-    let ratio: CGFloat
-    switch display {
-    case .inch13: ratio = 1.25
-    case .inch14: ratio = 1.35
-    case .inch16: ratio = 1.45
-    case .other: ratio = 1.35
-    }
-    return min(96, max(72, (fieldHeight * ratio).rounded()))
-}
-
 func preferredSearchPanelFrame(_ frames: [CGRect], field: CGRect, visible: CGRect) -> CGRect? {
     let desiredWidth = field.width + 80
     return frames.filter { frame in
@@ -295,9 +284,12 @@ func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
                            width: field.width + leftInset + rightInset, height: field.height)
         }
         let anchor = CGRect(x: shell.minX, y: field.minY, width: shell.width, height: field.height)
-        return cardFrame(above: anchor, visible: visible, gap: 8, topInset: 4,
-                         minimumHeight: 72,
-                         maximumHeight: preferredCompactCardHeight(fieldHeight: field.height, display: display))
+        // Fill the usable region above Spotlight, with breathing room below the
+        // menu bar. On shorter screens, reduce the insets before reducing content.
+        return cardFrame(above: anchor, visible: visible, gap: 15, topInset: 10,
+                         minimumHeight: 72, maximumHeight: 206)
+            ?? cardFrame(above: anchor, visible: visible, gap: 8, topInset: 4,
+                         minimumHeight: 72, maximumHeight: 206)
     }
     if let aboveWindow = cardFrame(above: window, visible: visible) { return aboveWindow }
     // Campo's result window reaches almost to the menu bar on macOS 27.
@@ -305,8 +297,7 @@ func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
     // This intentionally has no side or below fallback.
     let field = searchField ?? window
     return cardFrame(above: field, visible: visible, gap: 8, topInset: 4,
-                     minimumHeight: 72,
-                     maximumHeight: preferredCompactCardHeight(fieldHeight: field.height, display: display))
+                     minimumHeight: 72, maximumHeight: 206)
 }
 
 func stabilizedCardFrame(_ proposed: CGRect, previous: CGRect?, visible: CGRect,
