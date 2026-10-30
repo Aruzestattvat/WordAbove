@@ -26,7 +26,16 @@ system light/dark appearance, and never steals keyboard focus.
 
 ## Install
 
-1. Download the latest `WordAbove-*-macos-arm64.zip` from the [Releases](../../releases) page.
+Choose a release for your system:
+
+| System | Recommended release | Focus |
+| --- | --- | --- |
+| macOS 27 | [v1.1.10](../../releases/tag/v1.1.10) | Spotlight alignment, system Liquid Glass and faster dismissal |
+| macOS 26 | [v1.1.2](../../releases/tag/v1.1.2) | Stable on-device translation language-pack setup |
+
+Both releases remain available. The newer app also supports macOS 26; the labels identify the system each release was optimized for.
+
+1. Download `WordAbove-*-macos-arm64.zip` from your chosen release.
 2. Unzip it (double-click in Finder) and drag `词在上.app` into `/Applications`.
 3. Open it, then in the app's setup window click **打开辅助功能设置** and enable **词在上** under
    *System Settings → Privacy & Security → Accessibility*.

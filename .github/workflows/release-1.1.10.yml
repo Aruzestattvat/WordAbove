@@ -1,0 +1,37 @@
+name: release macOS 27 build
+
+on:
+  push:
+    tags: [v1.1.10]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and verify
+        run: bash Scripts/build.sh --out dist --self-test
+
+      - name: Package signed app
+        run: bash Scripts/package-release.sh --out dist
+
+      - name: Preserve and label macOS 26 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit v1.1.2 --title 'WordAbove · 词在上 1.1.2 — macOS 26 优化（语言包安装）'
+
+      - name: Publish macOS 27 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/WordAbove-1.1.10-macos-arm64.zip \
+            dist/WordAbove-1.1.10-macos-arm64.zip.sha256 \
+            --verify-tag \
+            --latest \
+            --title 'WordAbove · 词在上 1.1.10 — macOS 27 优化' \
+            --notes-file ReleaseNotes/v1.1.10.md
