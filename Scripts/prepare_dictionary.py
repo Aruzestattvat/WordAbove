@@ -49,6 +49,7 @@ def find_upwards(name: str, start: pathlib.Path) -> pathlib.Path:
 
 # 内置例句：为高频词/自检词条提供稳定例句，随本项目 MIT 许可发布
 CURATED = {
+    'app': 'I opened the app to check the weather forecast.',
     'serendipity': 'Finding this quiet café by chance was a moment of serendipity.',
     'hello': 'She smiled and said hello to her new neighbor.',
     'focus': 'I need a quiet room so I can focus on my work.',
@@ -67,6 +68,10 @@ CURATED = {
     'word': 'Write the new word in your notebook.',
     'plugin': 'This plugin adds a dictionary to the search experience.',
 }
+
+# ECDICT leaves this common abbreviation without a transcription.
+# IPA checked against Cambridge Dictionary: https://dictionary.cambridge.org/pronunciation/english/app
+PHONETIC_OVERRIDES = {'app': 'æp'}
 
 
 def build_examples(wordnet_zip: pathlib.Path) -> dict[str, tuple[str, str]]:
@@ -133,7 +138,7 @@ def main() -> None:
             if not r.get('translation'):
                 continue
             ex, source = examples.get(w, ('', ''))
-            rows.append((w, r.get('phonetic', ''), r['translation'].replace('\\n', '\n'),
+            rows.append((w, PHONETIC_OVERRIDES.get(w, r.get('phonetic', '')), r['translation'].replace('\\n', '\n'),
                          (r.get('definition') or '').replace('\\n', '\n'), ex, source))
     db.executemany('INSERT OR IGNORE INTO words VALUES(?,?,?,?,?,?)', rows)
     db.commit()

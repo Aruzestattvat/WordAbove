@@ -33,9 +33,27 @@ func normalizedWord(_ raw: String) -> String? {
     return word
 }
 
+func displayPhonetic(_ raw: String) -> String? {
+    let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "/[]")))
+        .replacingOccurrences(of: "'", with: "ˈ")
+        .replacingOccurrences(of: ",", with: "ˌ")
+        .replacingOccurrences(of: "ә", with: "ə")
+    guard !clean.isEmpty, clean.count <= 64,
+          !clean.contains("?"), !clean.contains("�"),
+          !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+    return "/" + clean + "/"
+}
+
 final class DictionaryStore {
     private var db: OpaquePointer?
-    init(path: String) { sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) }
+    let isReady: Bool
+    init(path: String) {
+        let opened = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK
+        var statement: OpaquePointer?
+        isReady = opened && sqlite3_prepare_v2(db, "SELECT 1 FROM words LIMIT 1", -1, &statement, nil) == SQLITE_OK
+            && sqlite3_step(statement) == SQLITE_ROW
+        sqlite3_finalize(statement)
+    }
     deinit { sqlite3_close(db) }
     func lookup(_ word: String) -> Entry? {
         var statement: OpaquePointer?
@@ -80,7 +98,10 @@ actor ExampleService {
             guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_000_000 else { attempted.insert(entry.word); return entry }
             let results = try JSONDecoder().decode([APIEntry].self, from: data)
             var updated = entry
-            if updated.phonetic.isEmpty { updated.phonetic = results.compactMap(\.phonetic).first ?? results.flatMap { $0.phonetics ?? [] }.compactMap(\.text).first ?? "" }
+            if displayPhonetic(updated.phonetic) == nil {
+                let candidates = results.compactMap(\.phonetic) + results.flatMap { $0.phonetics ?? [] }.compactMap(\.text)
+                updated.phonetic = candidates.first(where: { displayPhonetic($0) != nil }) ?? ""
+            }
             outer: for result in results {
                 for definition in result.meanings.flatMap(\.definitions) {
                     if let example = definition.example, !example.isEmpty, example.count <= 400 {
@@ -99,18 +120,109 @@ actor ExampleService {
     }
 }
 
-// MARK: - 源自 Sources/SpotlightObserver.swift（仅取与窗口定位有关的部分）
+// MARK: - 源自 Sources/SpotlightObserver.swift（显示器适配与窗口定位）
+
+enum DisplaySizeClass: String {
+    case inch13 = "13 寸内屏"
+    case inch14 = "14 寸内屏"
+    case inch16 = "16 寸内屏"
+    case other = "其他显示器"
+}
+
+func displaySizeClass(diagonalInches: CGFloat?, isBuiltIn: Bool) -> DisplaySizeClass {
+    guard isBuiltIn, let diagonalInches else { return .other }
+    switch diagonalInches {
+    case 12.5..<14: return .inch13
+    case 14..<15: return .inch14
+    case 15.5..<17.5: return .inch16
+    default: return .other
+    }
+}
+
+func displaySizeClass(for screen: NSScreen) -> DisplaySizeClass {
+    guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return .other }
+    let id = CGDirectDisplayID(number.uint32Value)
+    let size = CGDisplayScreenSize(id)
+    let diagonal = hypot(size.width, size.height) / 25.4
+    return displaySizeClass(diagonalInches: diagonal.isFinite ? diagonal : nil,
+                            isBuiltIn: CGDisplayIsBuiltin(id) != 0)
+}
+
+func preferredCompactCardHeight(fieldHeight: CGFloat, display: DisplaySizeClass) -> CGFloat {
+    let ratio: CGFloat
+    switch display {
+    case .inch13: ratio = 1.25
+    case .inch14: ratio = 1.35
+    case .inch16: ratio = 1.45
+    case .other: ratio = 1.35
+    }
+    return min(96, max(72, (fieldHeight * ratio).rounded()))
+}
+
+func preferredSearchPanelFrame(_ frames: [CGRect], field: CGRect, visible: CGRect) -> CGRect? {
+    let desiredWidth = field.width + 80
+    return frames.filter { frame in
+        frame.width >= field.width + 24 &&
+        frame.width <= min(field.width + 250, visible.width * 0.95) &&
+        frame.minX <= field.minX + 8 && frame.maxX >= field.maxX - 8 &&
+        frame.minY <= field.minY + 12 && frame.maxY >= field.maxY - 12
+    }.min { abs($0.width - desiredWidth) < abs($1.width - desiredWidth) }
+}
 
 func cardFrame(above spotlight: CGRect, visible: CGRect) -> CGRect? {
-    let gap: CGFloat = 12
+    cardFrame(above: spotlight, visible: visible, gap: 12, topInset: 8,
+              minimumHeight: 100, maximumHeight: 206)
+}
+
+private func cardFrame(above spotlight: CGRect, visible: CGRect,
+                       gap: CGFloat, topInset: CGFloat,
+                       minimumHeight: CGFloat, maximumHeight: CGFloat) -> CGRect? {
     let y = spotlight.maxY + gap
-    let available = visible.maxY - y - 8
-    guard available >= 100 else { return nil }
+    let available = visible.maxY - y - topInset
+    guard spotlight.intersects(visible), available >= minimumHeight else { return nil }
     // Match both Spotlight edges; only constrain the width at a screen boundary.
     let width = min(spotlight.width, visible.width - 24)
-    let height = min(206, available)
+    let height = min(maximumHeight, available)
     let x = min(max(spotlight.midX - width / 2, visible.minX + 12), visible.maxX - width - 12)
     return CGRect(x: x, y: y, width: width, height: height)
+}
+
+func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
+               display: DisplaySizeClass = .other, campo: Bool = false) -> CGRect? {
+    if campo {
+        guard let field = searchField else { return nil }
+        // Campo changes its CG window while suggestions expand. The field
+        // supplies the vertical anchor; the outer search panel supplies both edges.
+        let shell: CGRect
+        if let panel = preferredSearchPanelFrame([window], field: field, visible: visible) {
+            shell = panel
+        } else {
+            let leftInset = min(64, max(40, field.height * 1.05))
+            let rightInset = min(24, max(18, field.height * 0.35))
+            shell = CGRect(x: field.minX - leftInset, y: field.minY,
+                           width: field.width + leftInset + rightInset, height: field.height)
+        }
+        let anchor = CGRect(x: shell.minX, y: field.minY, width: shell.width, height: field.height)
+        return cardFrame(above: anchor, visible: visible, gap: 8, topInset: 4,
+                         minimumHeight: 72,
+                         maximumHeight: preferredCompactCardHeight(fieldHeight: field.height, display: display))
+    }
+    if let aboveWindow = cardFrame(above: window, visible: visible) { return aboveWindow }
+    // Campo's result window reaches almost to the menu bar on macOS 27.
+    // Keep the card above its input and reduce its height to the room available.
+    // This intentionally has no side or below fallback.
+    let field = searchField ?? window
+    return cardFrame(above: field, visible: visible, gap: 8, topInset: 4,
+                     minimumHeight: 72,
+                     maximumHeight: preferredCompactCardHeight(fieldHeight: field.height, display: display))
+}
+
+func stabilizedCardFrame(_ proposed: CGRect, previous: CGRect?, visible: CGRect,
+                         campo: Bool) -> CGRect {
+    guard campo, let previous, visible.contains(previous),
+          abs(previous.midX - proposed.midX) < 60,
+          abs(previous.minY - proposed.minY) < 20 else { return proposed }
+    return previous
 }
 
 // MARK: - 源自 Sources/RoundedMaterialView.swift

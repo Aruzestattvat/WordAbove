@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.2 (build 5)
+- **Version**: 1.1.10 (build 13)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -26,7 +26,16 @@ system light/dark appearance, and never steals keyboard focus.
 
 ## Install
 
-1. Download `WordAbove-1.1.2-macos-arm64.zip` from the [Releases](../../releases) page.
+Choose a release for your system:
+
+| System | Recommended release | Focus |
+| --- | --- | --- |
+| macOS 27 | [v1.1.10](../../releases/tag/v1.1.10) | Spotlight alignment, system Liquid Glass and faster dismissal |
+| macOS 26 | [v1.1.2](../../releases/tag/v1.1.2) | Stable on-device translation language-pack setup |
+
+Both releases remain available. The newer app also supports macOS 26; the labels identify the system each release was optimized for.
+
+1. Download `WordAbove-*-macos-arm64.zip` from your chosen release.
 2. Unzip it (double-click in Finder) and drag `词在上.app` into `/Applications`.
 3. Open it, then in the app's setup window click **打开辅助功能设置** and enable **词在上** under
    *System Settings → Privacy & Security → Accessibility*.
@@ -37,6 +46,13 @@ system light/dark appearance, and never steals keyboard focus.
 
 The build is ad-hoc signed (not notarized), so the first launch may require
 *System Settings → Privacy & Security → Open Anyway*.
+
+If no card appears for `hello`, open the menu bar's **设置…** item. It now shows whether the bundled dictionary
+is readable and whether Spotlight's search box can be read. **复制诊断信息** copies these checks without copying your
+search text. The app can also print them from Terminal with
+`/Applications/词在上.app/Contents/MacOS/WordAbove --diagnose`.
+For macOS 27 reports, type `hello` in Spotlight before copying diagnostics. The app keeps the most recent search
+status and search-window owner after Spotlight closes; it does not keep the typed word.
 
 > ⚠️ Unzip with Finder. If you unzip with the command-line `unzip`, macOS AppleDouble `._*` files can break
 > the code signature — re-extract with `ditto -x -k <zip> <dir>` or just use Finder.
@@ -198,8 +214,58 @@ bash Scripts/build.sh --self-test     # app-level self-test
 - Automatic translation needs **macOS 26+**. On macOS 14/15 the offline English dictionary still works, but the
   translation features report that a newer system is required.
 - Spotlight coupling relies on the Accessibility API and window metadata; a future macOS update could change it.
+- macOS 27 moved the Command-Space overlay to `com.apple.campo`. The app recognizes that host while
+  excluding Campo's frontmost Siri chat window. Card placement is recalculated from the current screen and
+  search-field position whenever Spotlight moves.
 - After rebuilding or updating an ad-hoc signed app, re-grant Accessibility if the card stops appearing:
   `tccutil reset Accessibility local.wordabove.SpotlightDictionary` — reset only this app, never others.
+
+## 1.1.10 changes
+
+- Fill the available region above Spotlight on macOS 27, matching the outer search panel's left and right edges.
+- Use AppKit's system Liquid Glass on macOS 26+, so the card follows the macOS 27 glass appearance slider; keep the existing material on older systems.
+- Shorten the grace period after Spotlight closes while still allowing a brief window transition during typing.
+
+## 1.1.9 changes
+
+- Keep the macOS 27 card aligned to Spotlight's outer search panel even while Campo expands its suggestion window.
+- Use the input field for the vertical anchor from the start and preserve card geometry during one search session.
+- Update offline dictionary text in the visible card as typing changes, without hiding and reopening the panel.
+
+## 1.1.8 changes
+
+- Detect the built-in display's physical size (13, 14 or 16 inches) and size the top card in proportion to
+  Spotlight's actual input-field height. External and scaled displays use their current field geometry.
+- Include the detected display class, usable screen size and chosen card size in copied diagnostics.
+
+## 1.1.7 changes
+
+- Center compact dictionary content vertically and use the available 80–110 point height for clearer spacing.
+- Add a verified pronunciation and original example for `app`, which ECDICT leaves empty. Reject malformed
+  phonetic strings from online enrichment instead of showing replacement characters.
+
+## 1.1.6 changes
+
+- Keep the card above the search input. Fit its height to the space between the field and menu bar, using a
+  compact three-line dictionary layout when that space is short. Never move it to the side or below Spotlight.
+
+## 1.1.5 changes
+
+- Position the card from the actual Accessibility frame of the search input on macOS 27 when the host window
+  extends to the top edge. The traditional above-window placement remains first choice.
+- A temporary side/below fallback helped diagnose the macOS 27 layout; 1.1.6 replaces it with top-only placement.
+
+## 1.1.4 changes
+
+- Recognize the macOS 27 Command-Space search host (`com.apple.campo`) as well as classic Spotlight.
+- Keep Siri's regular chat window outside the search observer and preserve the most recent search diagnostics.
+
+## 1.1.3 changes
+
+- Show dictionary and Spotlight connection status in settings; add a privacy-safe diagnostic copy command.
+- Recognize Spotlight's focused text field even when macOS omits its older Accessibility identifier or subrole.
+- On the first authorized launch, offer the language preparation window when the selected language pair is not installed.
+- Report a missing bundled dictionary explicitly instead of silently falling back to system translation.
 
 ## 1.1.2 changes
 
@@ -247,6 +313,15 @@ macOS 菜单栏翻译辅助应用。打开 Spotlight（⌘ 空格）并输入文
 5. 在 Spotlight 输入“你好”或“今天的天气很好。”测试中译英，切换语言对后再尝试日文。
 
 翻译语言包由 macOS 管理，可在“系统设置 → 通用 → 语言与地区 → 翻译语言”中查看。下载语言包需要联网；下载后使用本机翻译。**自动翻译需要 macOS 26+**，本版本为 Apple Silicon 编译。macOS 14/15 的英文离线查词保留，但新增后台翻译功能需要升级系统。
+
+如果输入 `hello` 后完全没有上方卡片，请打开菜单栏的「设置…」查看「离线词库」和「聚焦状态」。若辅助功能未授权，点击「打开辅助功能设置」授权当前安装版；若显示无法读取搜索框，点击「复制诊断信息」提交反馈。诊断信息不包含搜索词。也可在终端运行 `/Applications/词在上.app/Contents/MacOS/WordAbove --diagnose`。
+macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息；应用保留最近一次搜索状态与系统搜索窗口所属进程，不保留所输入的文字。
+1.1.4 开始识别 macOS 27 的 `com.apple.campo` 搜索浮窗；普通 Siri 聊天窗口不会被当作 Spotlight 读取。
+1.1.6 使用搜索输入框的实际位置摆放卡片，并按当前屏幕上方的可用高度缩小排版；卡片只出现在搜索框上方。
+1.1.7 优化顶部紧凑卡片的垂直留白，并补齐 `app` 的音标与例句；无效音标不再显示乱码。
+1.1.8 根据 13、14、16 寸内屏及当前 Spotlight 输入框尺寸动态调整顶部卡片；外接屏也按实际坐标适配。诊断信息新增显示器和卡片尺寸。
+1.1.9 修复 macOS 27 搜索结果展开时卡片先大后小、重新出现的闪烁；卡片与 Spotlight 外框左右对齐，连续输入时只更新内容。
+1.1.10 让顶部卡片填充 Spotlight 上方可用空间，并使用系统 Liquid Glass，跟随 macOS 27 的玻璃效果设置；缩短关闭搜索后的收起等待。
 
 ### 菜单
 
