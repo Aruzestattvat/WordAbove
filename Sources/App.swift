@@ -19,12 +19,32 @@ import Translation
     @Published var recentSpotlightStatus: SpotlightAccessState?
     @Published var dictionaryReady = false
     @Published var loading = false
+    @Published var expandedMeaning = false
+    @Published var copiedTranslation: String?
+    private var copyFeedbackGeneration = 0
+    let copyFeedbackAnimator = CopyFeedbackAnimator()
     @Published var online: Bool = UserDefaults.standard.object(forKey: "online") as? Bool ?? true {
         didSet { UserDefaults.standard.set(online, forKey: "online") }
     }
     @Published var enabled = true
     @Published var login = SMAppService.mainApp.status == .enabled
     @Published var note = ""
+
+    func copyTranslation(_ text: String) {
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        guard NSPasteboard.general.setString(text, forType: .string) else { return }
+        copyFeedbackGeneration &+= 1
+        let generation = copyFeedbackGeneration
+        copiedTranslation = text
+        copyFeedbackAnimator.start()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard let self, self.copyFeedbackGeneration == generation else { return }
+            self.copiedTranslation = nil
+            self.copyFeedbackAnimator.reset(animated: true)
+        }
+    }
 }
 
 struct DictionaryCard: View {
@@ -33,45 +53,105 @@ struct DictionaryCard: View {
         GeometryReader { geo in
             if let translated = model.translated {
                 TranslationCard(content: translated, compact: geo.size.height < 170,
-                                tight: geo.size.height < 110)
+                                tight: geo.size.height < 96, micro: geo.size.height < 70,
+                                copied: translated.text != nil && model.copiedTranslation == translated.text,
+                                copyFeedbackAnimator: model.copyFeedbackAnimator,
+                                onCopy: { if let text = translated.text { model.copyTranslation(text) } })
             } else if let entry = model.entry {
                 let compact = geo.size.height < 170
-                let tight = geo.size.height < 110
+                let tight = geo.size.height < 96
                 let veryTight = geo.size.height < 82
-                VStack(alignment: .leading, spacing: tight ? (veryTight ? 2 : 4) : (compact ? 7 : 10)) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(entry.word).font(.system(size: tight ? (veryTight ? 19 : 20) : (compact ? 23 : 27), weight: .semibold, design: .rounded)).lineLimit(1)
-                        if let phonetic = displayPhonetic(entry.phonetic) {
-                            Text(phonetic).font(.system(size: tight ? 13 : 14)).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer(minLength: 4)
-                        if !tight {
-                            Image(systemName: "character.book.closed").font(.system(size: 16, weight: .regular)).foregroundStyle(.tertiary)
-                        }
+                let micro = geo.size.height < 70
+                let preview = meaning(entry.translation)
+                let firstMeaning = firstDictionaryMeaning(entry.translation)
+                let copied = firstMeaning != nil && model.copiedTranslation == firstMeaning
+                let fullLines = fullMeanings(entry.translation)
+                let hasMore = fullLines.count > previewLineCount(entry.translation) ||
+                    (preview as NSString).size(withAttributes: [
+                        .font: NSFont.systemFont(ofSize: tight ? (veryTight ? 13 : 14) : 15)
+                    ]).width > max(0, geo.size.width - (tight ? 32 : 84)) * (compact ? 1 : 2)
+                HStack(alignment: .top, spacing: tight ? 8 : 14) {
+                    Button {
+                        if let firstMeaning { model.copyTranslation(firstMeaning) }
+                    } label: {
+                        CopyFeedbackIcon(animator: model.copyFeedbackAnimator, tight: tight)
                     }
-                    Text(meaning(entry.translation))
-                        .font(.system(size: tight ? (veryTight ? 13 : 14) : 15)).lineSpacing(tight ? 0 : 3).foregroundStyle(.primary)
-                        .lineLimit(compact ? 1 : 2).frame(maxWidth: .infinity, alignment: .leading)
-                    if geo.size.height >= 140 { Divider().opacity(0.65) }
-                    if !entry.example.isEmpty {
-                        Text(entry.example).font(.system(size: tight ? (veryTight ? 11.5 : 12.5) : 13.5)).foregroundStyle(.secondary)
-                            .lineSpacing(tight ? 0 : 3).lineLimit(tight ? 1 : (compact ? 2 : 3))
-                    } else if !tight {
-                        Text(model.loading ? "正在补充例句…" : "该词暂无可用例句")
-                            .font(.system(size: tight ? 11 : 12)).foregroundStyle(.tertiary)
-                    }
-                    if !tight { Spacer(minLength: 0) }
-                    if !compact {
-                        HStack {
-                            Text("英汉词典")
-                            Spacer()
-                            Text(entry.source.isEmpty ? "离线释义 · ECDICT" : "ECDICT · " + entry.source + (entry.license.map { " · " + $0 } ?? ""))
-                        }.font(.system(size: 9.5)).foregroundStyle(.tertiary).lineLimit(1)
+                    .buttonStyle(.plain)
+                    .disabled(firstMeaning == nil)
+                    .help(copied ? "已复制：\(firstMeaning ?? "")" : "复制首条释义")
+                    .accessibilityLabel(copied ? "已复制首条释义" : "复制首条释义")
+                    VStack(alignment: .leading, spacing: tight ? (veryTight ? 2 : 4) : (compact ? 7 : 10)) {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(entry.word).font(.system(size: tight ? (veryTight ? 19 : 20) : (compact ? 23 : 27), weight: .semibold, design: .rounded)).lineLimit(1)
+                            if let phonetic = displayPhonetic(entry.phonetic) {
+                                Text(phonetic).font(.system(size: tight ? 13 : 14)).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer(minLength: 4)
+                            if hasMore {
+                                Button {
+                                    model.expandedMeaning.toggle()
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(model.expandedMeaning ? "收起" : "完整释义")
+                                        Image(systemName: model.expandedMeaning ? "chevron.up" : "chevron.down")
+                                    }
+                                    .font(.system(size: tight ? 10 : 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 5).padding(.vertical, 5)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .help(model.expandedMeaning ? "收起完整释义" : "查看完整释义")
+                                .accessibilityLabel(model.expandedMeaning ? "收起完整释义" : "查看完整释义")
+                            }
+                        }
+                        if model.expandedMeaning && hasMore {
+                            ScrollView(.vertical) {
+                                VStack(alignment: .leading, spacing: tight ? 4 : 7) {
+                                    ForEach(Array(fullLines.enumerated()), id: \.offset) { _, line in
+                                        Text(line)
+                                            .font(.system(size: tight ? (veryTight ? 13 : 14) : 15))
+                                            .foregroundStyle(.primary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    if !entry.example.isEmpty {
+                                        Divider().opacity(0.65)
+                                        Text(entry.example)
+                                            .font(.system(size: tight ? 11.5 : 13.5))
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .scrollIndicators(.automatic)
+                        } else {
+                            Text(preview)
+                                .font(.system(size: tight ? (veryTight ? 13 : 14) : 15)).lineSpacing(tight ? 0 : 3).foregroundStyle(.primary)
+                                .lineLimit(compact ? 1 : 2).frame(maxWidth: .infinity, alignment: .leading)
+                            if geo.size.height >= 140 { Divider().opacity(0.65) }
+                            if !micro && !entry.example.isEmpty {
+                                Text(entry.example).font(.system(size: tight ? (veryTight ? 11.5 : 12.5) : 13.5)).foregroundStyle(.secondary)
+                                    .lineSpacing(tight ? 0 : 3).lineLimit(tight ? 1 : (compact ? 2 : 3))
+                            } else if !tight {
+                                Text(model.loading ? "正在补充例句…" : "该词暂无可用例句")
+                                    .font(.system(size: 12)).foregroundStyle(.tertiary)
+                            }
+                        }
+                        if !compact && !model.expandedMeaning {
+                            Spacer(minLength: 0)
+                            HStack {
+                                Text("英汉词典")
+                                Spacer()
+                                Text(entry.source.isEmpty ? "离线释义 · ECDICT" : "ECDICT · " + entry.source + (entry.license.map { " · " + $0 } ?? ""))
+                            }.font(.system(size: 9.5)).foregroundStyle(.tertiary).lineLimit(1)
+                        }
                     }
                 }
-                .padding(.horizontal, tight ? 16 : 20).padding(.vertical, tight ? (veryTight ? 6 : 8) : (compact ? 12 : 16))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tight ? .leading : .topLeading)
-                .accessibilityElement(children: .combine)
+                .padding(.horizontal, tight ? 16 : 20).padding(.vertical, tight ? (micro ? 4 : (veryTight ? 6 : 8)) : (compact ? 12 : 16))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .transaction { $0.disablesAnimations = true }
+                .accessibilityElement(children: .contain)
             }
         }
     }
@@ -79,6 +159,16 @@ struct DictionaryCard: View {
         let lines = text.components(separatedBy: .newlines)
         let regular = lines.filter { !$0.hasPrefix("[") }
         return (regular.isEmpty ? lines : regular).prefix(3).joined(separator: "  ·  ")
+    }
+    private func fullMeanings(_ text: String) -> [String] {
+        text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+    private func previewLineCount(_ text: String) -> Int {
+        let lines = text.components(separatedBy: .newlines)
+        let regular = lines.filter { !$0.hasPrefix("[") }
+        return min((regular.isEmpty ? lines : regular).count, 3)
     }
 }
 
@@ -142,6 +232,10 @@ class PassivePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     let model = Model()
     let preparation = PreparationModel()
@@ -155,14 +249,22 @@ class PassivePanel: NSPanel {
     var previewWindow: NSWindow?
     var languageWindow: NSWindow?
     var timer: Timer?
+    var updateTimer: Timer?
     var lookupTask: Task<Void, Never>?
     var currentWord: String?
     var lastFrame: CGRect?
+    var cardFrameStabilizer = CardFrameStabilizer()
+    var lastSearchText: String?
+    var dismissedSearchText: String?
+    var suppressStaleUntil = Date.distantPast
     var recentPlacement: String?
     var transientSearchMisses = 0
     var tickCount = 0
     var lastOnline = true
     private var languageOfferChecked = false
+    private var availableUpdate: UpdateRelease?
+    private var updateBusy = false
+    private var installingUpdate = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -173,29 +275,42 @@ class PassivePanel: NSPanel {
         statusItem.button?.image = NSImage(systemSymbolName: "character.book.closed", accessibilityDescription: "词在上")
         statusItem.button?.toolTip = "词在上 · Spotlight 自动互译"
         rebuildMenu()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+        timer = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        timer?.tolerance = 0.02
+        timer?.tolerance = 0.01
+        // Keep geometry updates running while the input method shows its
+        // candidate window; a default-mode timer pauses during that interaction.
+        RunLoop.main.add(timer!, forMode: .common)
         if !model.trusted || CommandLine.arguments.contains("--settings") { showSetup() }
         if CommandLine.arguments.contains("--preview") { showPreview() }
         if CommandLine.arguments.contains("--preview-compact") { showCardPreview(height: 78) }
         if CommandLine.arguments.contains("--languages") { showLanguageSetup() }
         Task { await preparation.refresh(); rebuildMenu() }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            await self?.checkUpdates(silent: true)
+        }
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in await self?.checkUpdates(silent: true) }
+        }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showSetup(); return true }
-    func applicationWillTerminate(_ notification: Notification) { lookupTask?.cancel(); timer?.invalidate() }
+    func applicationWillTerminate(_ notification: Notification) {
+        lookupTask?.cancel(); timer?.invalidate(); updateTimer?.invalidate()
+    }
     func createPanel() {
         panel = PassivePanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 206), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.title = "词在上 · 单词释义"
         panel.level = .init(rawValue: NSWindow.Level.popUpMenu.rawValue + 1)
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
-        panel.hidesOnDeactivate = false; panel.ignoresMouseEvents = true
+        panel.animationBehavior = .none
+        panel.hidesOnDeactivate = false; panel.ignoresMouseEvents = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.contentView = cardContent(model)
     }
     func cardContent(_ model: Model) -> NSView {
-        let hosting = NSHostingView(rootView: DictionaryCard(model: model))
+        let hosting = FirstClickHostingView(rootView: DictionaryCard(model: model))
         if #available(macOS 26.0, *) {
             // The system's regular glass follows the macOS 27 transparency
             // slider, appearance, and accessibility contrast preferences.
@@ -230,8 +345,6 @@ class PassivePanel: NSPanel {
     func menuNeedsUpdate(_ menu: NSMenu) { populateMenu(menu) }
     func populateMenu(_ menu: NSMenu) {
         menu.removeAllItems()
-        let title = NSMenuItem(title: "词在上 · WordAbove", action: nil, keyEquivalent: "")
-        menu.addItem(title); menu.addItem(.separator())
         let pairItem = NSMenuItem(title: "自动互译：" + model.pair.title, action: nil, keyEquivalent: "")
         let pairMenu = NSMenu()
         for pair in LanguagePair.allCases {
@@ -248,22 +361,34 @@ class PassivePanel: NSPanel {
             directionMenu.addItem(item)
         }
         directionItem.submenu = directionMenu; menu.addItem(directionItem)
+        let toggle = NSMenuItem(title: model.enabled ? "暂停自动翻译" : "恢复自动翻译", action: #selector(toggleEnabled), keyEquivalent: "")
+        toggle.target = self; menu.addItem(toggle)
+        menu.addItem(.separator())
+        let settings = NSMenuItem(title: "设置…", action: #selector(showSetup), keyEquivalent: "")
+        settings.target = self; menu.addItem(settings)
+        let updateTitle = updateBusy ? "正在检查或下载更新…" :
+            (availableUpdate.map { "安装新版本 v\($0.version)…" } ?? "检查更新…")
+        let update = NSMenuItem(title: updateTitle,
+                                action: updateBusy ? nil : #selector(checkUpdatesMenu), keyEquivalent: "")
+        update.target = self; menu.addItem(update)
+
+        let more = NSMenuItem(title: "更多", action: nil, keyEquivalent: "")
+        let moreMenu = NSMenu()
         let languageTitle: String
         if preparation.isRunning { languageTitle = "语言包准备中…" }
         else if preparation.allVerified { languageTitle = "语言包：中英日已就绪" }
         else { languageTitle = "下载中英日语言包…" }
         let languages = NSMenuItem(title: languageTitle, action: #selector(showLanguageSetup), keyEquivalent: "")
-        languages.target = self; menu.addItem(languages)
+        languages.target = self; moreMenu.addItem(languages)
         let retry = NSMenuItem(title: "重试当前翻译", action: #selector(retryTranslation), keyEquivalent: "")
-        retry.target = self; menu.addItem(retry)
-        menu.addItem(.separator())
-        let toggle = NSMenuItem(title: model.enabled ? "暂停自动翻译" : "恢复自动翻译", action: #selector(toggleEnabled), keyEquivalent: "")
-        toggle.target = self; menu.addItem(toggle)
-        for (title, selector) in [("设置…", #selector(showSetup)), ("预览卡片", #selector(showPreview)), ("词库来源与许可", #selector(showLicenses))] {
-            let item = NSMenuItem(title: title, action: selector, keyEquivalent: ""); item.target = self; menu.addItem(item)
+        retry.target = self; moreMenu.addItem(retry)
+        moreMenu.addItem(.separator())
+        for (title, selector) in [("预览卡片", #selector(showPreview)), ("词库来源与许可", #selector(showLicenses))] {
+            let item = NSMenuItem(title: title, action: selector, keyEquivalent: ""); item.target = self; moreMenu.addItem(item)
         }
         let diagnostics = NSMenuItem(title: "复制诊断信息", action: #selector(copyDiagnostics), keyEquivalent: "")
-        diagnostics.target = self; menu.addItem(diagnostics)
+        diagnostics.target = self; moreMenu.addItem(diagnostics)
+        more.submenu = moreMenu; menu.addItem(more)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出词在上", action: #selector(quitApp), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
     }
@@ -295,7 +420,70 @@ class PassivePanel: NSPanel {
         NSApp.terminate(nil)
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        confirmInterruptIfPreparing(action: "退出") ? .terminateNow : .terminateCancel
+        if installingUpdate { return .terminateNow }
+        return confirmInterruptIfPreparing(action: "退出") ? .terminateNow : .terminateCancel
+    }
+    @objc func checkUpdatesMenu() {
+        if let availableUpdate { showUpdatePrompt(availableUpdate); return }
+        Task { await checkUpdates(silent: false) }
+    }
+    private func checkUpdates(silent: Bool) async {
+        guard !updateBusy else { return }
+        updateBusy = true; rebuildMenu()
+        defer { updateBusy = false; rebuildMenu() }
+        do {
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+            availableUpdate = try await GitHubUpdater.check(currentVersion: version)
+            if let release = availableUpdate {
+                if silent {
+                    let key = "lastUpdatePromptedVersion"
+                    guard UserDefaults.standard.string(forKey: key) != release.version else { return }
+                    UserDefaults.standard.set(release.version, forKey: key)
+                    for _ in 0..<30 where panel.isVisible {
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                    guard !panel.isVisible else { return }
+                }
+                showUpdatePrompt(release)
+            } else if !silent {
+                showUpdateMessage("已经是最新版本", "当前安装的词在上已是 GitHub 上的最新正式版。")
+            }
+        } catch {
+            if !silent { showUpdateMessage("无法检查更新", error.localizedDescription) }
+        }
+    }
+    private func showUpdatePrompt(_ release: UpdateRelease) {
+        let alert = NSAlert()
+        alert.messageText = "词在上 v\(release.version) 已发布"
+        alert.informativeText = "可以一键下载并安装，安装后应用会自动重启。更新临时签名的版本后，macOS 可能要求重新开启辅助功能权限。"
+        alert.addButton(withTitle: "一键安装")
+        alert.addButton(withTitle: "稍后")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            guard confirmInterruptIfPreparing(action: "更新并重启") else { return }
+            Task { await installUpdate(release) }
+        }
+    }
+    private func installUpdate(_ release: UpdateRelease) async {
+        guard !updateBusy else { return }
+        updateBusy = true; rebuildMenu()
+        do {
+            let target = Bundle.main.bundleURL.resolvingSymlinksInPath()
+            let prepared = try await GitHubUpdater.prepare(release, replacing: target)
+            try prepared.launchInstaller(waitingFor: ProcessInfo.processInfo.processIdentifier)
+            installingUpdate = true
+            NSApp.terminate(nil)
+        } catch {
+            updateBusy = false; rebuildMenu()
+            showUpdateMessage("安装失败", error.localizedDescription)
+        }
+    }
+    private func showUpdateMessage(_ title: String, _ detail: String) {
+        let alert = NSAlert()
+        alert.messageText = title; alert.informativeText = detail
+        alert.addButton(withTitle: "好")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
     /// 关窗/退出会中断会话；先明确告知用户，而不是静默取消。
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -371,9 +559,20 @@ class PassivePanel: NSPanel {
         previewWindow?.close(); previewWindow = window
         NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil)
     }
-    func hide() {
-        panel.orderOut(nil); lookupTask?.cancel(); lookupTask = nil
-        currentWord = nil; lastFrame = nil; model.entry = nil; model.translated = nil; model.loading = false
+    func hide(suppressStale: Bool = false) {
+        lookupTask?.cancel(); lookupTask = nil
+        if suppressStale {
+            dismissedSearchText = lastSearchText
+            suppressStaleUntil = Date().addingTimeInterval(0.4)
+        }
+        // Hide immediately when the search window closes. A fade can outlive
+        // Spotlight and leave the card floating alone for a frame.
+        panel.orderOut(nil)
+        currentWord = nil; lastFrame = nil
+        cardFrameStabilizer.reset()
+    }
+    private func showCard() {
+        if !panel.isVisible { panel.orderFrontRegardless() }
     }
     func tick() {
         tickCount += 1
@@ -389,20 +588,23 @@ class PassivePanel: NSPanel {
             if model.recentSpotlightStatus != observer.state { model.recentSpotlightStatus = observer.state }
         }
         guard let snapshot else {
-            if observer.state == .noWindow || observer.state == .noSearchField {
+            if observer.state == .noSearchField {
                 transientSearchMisses += 1
                 if transientSearchMisses <= 1 { return }
             }
-            if currentWord != nil { hide() }; return
+            if currentWord != nil { hide(suppressStale: true) }; return
         }
         transientSearchMisses = 0
+        if snapshot.text == dismissedSearchText && Date() < suppressStaleUntil { return }
+        dismissedSearchText = nil
         guard let request = translationRequest(for: snapshot.text, pair: model.pair, direction: model.direction) else {
             if !snapshot.text.isEmpty {
                 model.spotlightStatus = .ignoredInput
                 model.recentSpotlightStatus = .ignoredInput
             }
-            if currentWord != nil { hide() }; return
+            if currentWord != nil { hide(suppressStale: snapshot.text.isEmpty) }; return
         }
+        lastSearchText = snapshot.text
         let word = "\(model.pair.rawValue)|\(model.direction.rawValue)|\(model.translationRevision)|\(request.text)"
         let anchor = snapshot.searchFieldFrame ?? snapshot.frame
         guard let screen = NSScreen.screens.max(by: { $0.frame.intersection(anchor).area < $1.frame.intersection(anchor).area }) else {
@@ -415,19 +617,23 @@ class PassivePanel: NSPanel {
         let visible = screen.visibleFrame
         let isCampo = snapshot.hostBundleID == "com.apple.campo"
         guard let proposedFrame = cardFrame(around: snapshot.frame, searchField: snapshot.searchFieldFrame,
-                                            visible: visible, display: display, campo: isCampo) else {
-            recentPlacement = "\(display.rawValue)；可用屏幕 \(Int(visible.width))×\(Int(visible.height))；上方不足 72 点"
+                                            visible: visible, campo: isCampo) else {
+            recentPlacement = "\(display.rawValue)；可用屏幕 \(Int(visible.width))×\(Int(visible.height))；上方不足 64 点"
             model.spotlightStatus = .noSpace
             model.recentSpotlightStatus = .noSpace
             if currentWord != nil { hide() }
             return
         }
-        let frame = stabilizedCardFrame(proposedFrame, previous: lastFrame, visible: visible, campo: isCampo)
+        let frame = cardFrameStabilizer.resolve(proposedFrame, previous: lastFrame, visible: visible,
+                                                campo: isCampo, searchField: snapshot.searchFieldFrame)
         recentPlacement = "\(display.rawValue)；可用屏幕 \(Int(visible.width))×\(Int(visible.height))；卡片 \(Int(frame.width))×\(Int(frame.height))"
         if lastFrame != frame { panel.setFrame(frame, display: true); lastFrame = frame }
         if lastOnline != model.online { lastOnline = model.online; currentWord = nil; lookupTask?.cancel() }
         guard currentWord != word else { return }
         currentWord = word
+        model.expandedMeaning = false
+        model.copiedTranslation = nil
+        model.copyFeedbackAnimator.reset()
         lookupTask?.cancel(); lookupTask = nil; model.loading = false
         // Offline entries can replace their text immediately. Keep the panel
         // visible and at the same frame while the user types another letter.
@@ -435,7 +641,7 @@ class PassivePanel: NSPanel {
            let key = normalizedWord(request.text), let entry = dictionary.lookup(key) {
             model.translated = nil
             model.entry = entry
-            if !panel.isVisible { panel.orderFrontRegardless() }
+            showCard()
             if model.online && (entry.example.isEmpty || displayPhonetic(entry.phonetic) == nil) {
                 model.loading = true
                 lookupTask = Task { [weak self] in
@@ -450,7 +656,7 @@ class PassivePanel: NSPanel {
         }
         model.entry = nil
         model.translated = TranslationCardContent(request: request, text: nil, message: nil)
-        if !panel.isVisible { panel.orderFrontRegardless() }
+        showCard()
         lookupTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled, let self, self.currentWord == word else { return }
@@ -505,6 +711,7 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         print("诊断不输出搜索内容。")
     }
     @MainActor static func selfTest() {
+        GitHubUpdater.selfTest()
         checkTranslationRouting()
         checkLanguagePreparation()
         checkPreparationModel()
@@ -517,6 +724,11 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         }
         precondition(displayPhonetic("/ˈæp/") == "/ˈæp/")
         precondition(displayPhonetic("/ ?æ?p? /") == nil)
+        precondition(firstDictionaryMeaning(store.lookup("calash")!.translation) == "篷马车")
+        precondition(firstDictionaryMeaning(store.lookup("apple")!.translation) == "苹果")
+        precondition(firstDictionaryMeaning(store.lookup("a")!.translation) == "第一个字母 A")
+        precondition(firstDictionaryMeaning("[计] 软件, 程序") == "软件")
+        precondition(firstDictionaryMeaning("  \n ") == nil)
         precondition(normalizedWord("  Hello \n") == "hello")
         precondition(normalizedWord("user@example.com") == nil)
         precondition(normalizedWord("two words") == nil)
@@ -549,39 +761,48 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         let remoteScreen = CGRect(x: 0, y: 0, width: 1920, height: 1040)
         let campoCard = cardFrame(around: campoWindow, searchField: campoField,
                                   visible: remoteScreen, campo: true)!
-        precondition(campoCard.minY > campoField.maxY && campoCard.height == 84)
+        precondition(campoCard.minY - campoWindow.maxY == 8 && campoCard.height == 73)
         precondition(campoCard.minX == campoWindow.minX && campoCard.maxX == campoWindow.maxX)
         let tallerScreen = CGRect(x: 0, y: 0, width: 1920, height: 1050)
         precondition(cardFrame(around: campoWindow, searchField: campoField,
-                               visible: tallerScreen, campo: true)?.height == 81)
+                               visible: tallerScreen, campo: true)?.height == 77)
         precondition(displaySizeClass(diagonalInches: 13.6, isBuiltIn: true) == .inch13)
         precondition(displaySizeClass(diagonalInches: 14.2, isBuiltIn: true) == .inch14)
         precondition(displaySizeClass(diagonalInches: 16.2, isBuiltIn: true) == .inch16)
         precondition(displaySizeClass(diagonalInches: 16.2, isBuiltIn: false) == .other)
         var fittedHeights: [CGFloat] = []
-        for (display, screenSize, field) in [
-            (DisplaySizeClass.inch13, CGSize(width: 1280, height: 800), CGRect(x: 360, y: 650, width: 560, height: 52)),
-            (.inch14, CGSize(width: 1512, height: 982), CGRect(x: 476, y: 790, width: 560, height: 58)),
-            (.inch16, CGSize(width: 1728, height: 1117), CGRect(x: 584, y: 910, width: 560, height: 62))
+        for (screenSize, field) in [
+            (CGSize(width: 1280, height: 800), CGRect(x: 360, y: 650, width: 560, height: 52)),
+            (CGSize(width: 1512, height: 982), CGRect(x: 476, y: 790, width: 560, height: 58)),
+            (CGSize(width: 1728, height: 1117), CGRect(x: 584, y: 910, width: 560, height: 62))
         ] {
             let visible = CGRect(origin: .zero, size: screenSize)
             let shell = CGRect(x: field.minX - 60, y: field.minY,
                                width: field.width + 80, height: field.height)
             let fitted = cardFrame(around: shell, searchField: field, visible: visible,
-                                   display: display, campo: true)!
+                                   campo: true)!
             precondition(fitted.minY > field.maxY && fitted.minX == shell.minX)
             precondition(visible.contains(fitted))
             fittedHeights.append(fitted.height)
         }
-        precondition(fittedHeights[0] < fittedHeights[1] && fittedHeights[1] < fittedHeights[2])
-        // 1470×956 screenshot: fill the marked top region with 10 pt below the
-        // menu bar and 15 pt above the search field, matching the shell edges.
+        precondition(fittedHeights == [80, 116, 116])
+        let scaledVisible = CGRect(x: 0, y: 0, width: 1280, height: 800)
+        let scaledField = CGRect(x: 360, y: 672, width: 560, height: 52)
+        let scaledShell = CGRect(x: 300, y: 672, width: 640, height: 52)
+        let microCard = cardFrame(around: scaledShell, searchField: scaledField,
+                                  visible: scaledVisible, campo: true)!
+        precondition(microCard == CGRect(x: 300, y: 732, width: 640, height: 64))
+        precondition(cardFrame(around: scaledShell, searchField: scaledField,
+                               visible: CGRect(x: 0, y: 0, width: 1280, height: 790),
+                               campo: true) == nil)
+        // 1470×956 screenshot: keep the card inside the marked top region,
+        // matching both search-panel edges with a 10 pt gap between surfaces.
         let markedVisible = CGRect(x: 0, y: 0, width: 1470, height: 918)
         let markedShell = CGRect(x: 415, y: 0, width: 640, height: 764)
         let markedField = CGRect(x: 477, y: 724, width: 560, height: 30)
         let markedCard = cardFrame(around: markedShell, searchField: markedField,
                                    visible: markedVisible, campo: true)!
-        precondition(markedCard == CGRect(x: 415, y: 769, width: 640, height: 139))
+        precondition(markedCard == CGRect(x: 415, y: 774, width: 640, height: 116))
         let animatedScreen = CGRect(x: 0, y: 0, width: 1024, height: 800)
         let compactWindow = CGRect(x: 192, y: 598, width: 640, height: 60)
         let animatedField = CGRect(x: 258, y: 600, width: 550, height: 52)
@@ -590,12 +811,50 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         let firstCampoCard = cardFrame(around: compactWindow, searchField: animatedField,
                                        visible: animatedScreen, campo: true)!
         precondition(firstCampoCard.minX == compactWindow.minX && firstCampoCard.maxX == compactWindow.maxX)
-        precondition(firstCampoCard.height == 123)
+        precondition(firstCampoCard.height == 116)
         let expandedCampoCard = cardFrame(around: animatedScreen, searchField: animatedField,
                                           visible: animatedScreen, campo: true)!
         precondition(expandedCampoCard.width != firstCampoCard.width)
+        precondition(expandedCampoCard.minY - animatedField.maxY == 22)
         precondition(stabilizedCardFrame(expandedCampoCard, previous: firstCampoCard,
                                          visible: animatedScreen, campo: true) == firstCampoCard)
+        var stabilizer = CardFrameStabilizer()
+        precondition(stabilizer.resolve(firstCampoCard, previous: nil, visible: animatedScreen,
+                                        campo: true, searchField: animatedField) == firstCampoCard)
+        for _ in 0..<3 {
+            precondition(stabilizer.resolve(expandedCampoCard, previous: firstCampoCard,
+                                            visible: animatedScreen, campo: true,
+                                            searchField: animatedField) == firstCampoCard)
+        }
+        precondition(stabilizer.resolve(expandedCampoCard, previous: firstCampoCard,
+                                        visible: animatedScreen, campo: true,
+                                        searchField: animatedField) == expandedCampoCard)
+        stabilizer.reset()
+        precondition(stabilizer.resolve(firstCampoCard, previous: nil, visible: animatedScreen,
+                                        campo: true, searchField: animatedField) == firstCampoCard)
+        let movedField = animatedField.offsetBy(dx: 0, dy: 14)
+        let movedShell = compactWindow.offsetBy(dx: 0, dy: 14)
+        let movedCard = cardFrame(around: movedShell, searchField: movedField,
+                                  visible: animatedScreen, campo: true)!
+        let stabilizedMovedCard = stabilizedCardFrame(movedCard, previous: firstCampoCard,
+                                                      visible: animatedScreen, campo: true)
+        precondition(stabilizedMovedCard.minY == movedShell.maxY + 10)
+        precondition(stabilizedMovedCard.minY > movedField.maxY)
+        precondition(stabilizedMovedCard.minX == firstCampoCard.minX &&
+                     stabilizedMovedCard.width == firstCampoCard.width)
+        let slightlyMovedField = animatedField.offsetBy(dx: 0, dy: 7)
+        let slightlyMovedShell = compactWindow.offsetBy(dx: 0, dy: 7)
+        let slightlyMovedCard = cardFrame(around: slightlyMovedShell, searchField: slightlyMovedField,
+                                          visible: animatedScreen, campo: true)!
+        let safeStabilizedCard = stabilizedCardFrame(slightlyMovedCard, previous: firstCampoCard,
+                                                     visible: animatedScreen, campo: true,
+                                                     searchField: slightlyMovedField)
+        precondition(safeStabilizedCard.minY >= slightlyMovedField.maxY + 8)
+        let transitionalShell = CGRect(x: compactWindow.minX, y: compactWindow.minY,
+                                       width: compactWindow.width, height: compactWindow.height - 10)
+        let safeCard = cardFrame(around: transitionalShell, searchField: animatedField,
+                                 visible: animatedScreen, campo: true)!
+        precondition(safeCard.minY >= animatedField.maxY + 10)
         precondition(cardFrame(around: animatedScreen, searchField: nil,
                                visible: animatedScreen, campo: true) == nil)
         let impossibleField = CGRect(x: 370, y: 800, width: 700, height: 60)

@@ -215,8 +215,8 @@ final class SpotlightObserver {
         }
         guard let raw else { state = .noSearchField; return nil }
         state = raw.isEmpty ? .empty : .ready
-        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-        let windowFrame = CGRect(x: screenFrame.minX, y: primaryHeight - screenFrame.maxY, width: screenFrame.width, height: screenFrame.height)
+        let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
+        let windowFrame = CGRect(x: screenFrame.minX, y: primaryTop - screenFrame.maxY, width: screenFrame.width, height: screenFrame.height)
         let searchFieldFrame = field.flatMap(frameOfSearchField)
         var frame = windowFrame
         if app.bundleIdentifier == "com.apple.campo", let searchFieldFrame {
@@ -227,18 +227,42 @@ final class SpotlightObserver {
                 guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == app.processIdentifier,
                       let bounds = info[kCGWindowBounds as String] as? NSDictionary,
                       let rect = CGRect(dictionaryRepresentation: bounds) else { return nil }
-                return CGRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
+                return CGRect(x: rect.minX, y: primaryTop - rect.maxY, width: rect.width, height: rect.height)
+            }
+            let fromWindows = preferredSearchPanelFrame(cgFrames, field: searchFieldFrame, visible: visible)
+            let fromAccessibility = field.flatMap {
+                preferredSearchPanelFrame(parentFrames(of: $0), field: searchFieldFrame, visible: visible)
             }
             let cached = stablePanelFrame.flatMap {
                 preferredSearchPanelFrame([$0], field: searchFieldFrame, visible: visible)
             }
-            let fromWindows = preferredSearchPanelFrame(cgFrames, field: searchFieldFrame, visible: visible)
-            let panel = cached ?? fromWindows ?? field.flatMap {
-                preferredSearchPanelFrame(parentFrames(of: $0), field: searchFieldFrame, visible: visible)
-            }
+            // A cached panel can still contain the field while Campo animates
+            // its search window. Prefer the current window so the card follows
+            // the search box immediately during rapid input.
+            let panel = fromWindows ?? fromAccessibility ?? cached
             if let panel {
                 frame = panel
                 stablePanelFrame = panel
+            }
+            // Campo can remove its glass window while AX still returns the
+            // previous search field for another tick. Recheck the live window
+            // after the AX reads before publishing a snapshot.
+            let refreshed = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                        kCGNullWindowID) as? [[String: Any]] ?? []
+            let fieldOnScreen = CGRect(x: searchFieldFrame.minX,
+                                       y: primaryTop - searchFieldFrame.maxY,
+                                       width: searchFieldFrame.width,
+                                       height: searchFieldFrame.height)
+            let stillVisible = refreshed.contains { info in
+                guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == app.processIdentifier,
+                      (info[kCGWindowAlpha as String] as? Double ?? 1) >= 0.8,
+                      let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                      let rect = CGRect(dictionaryRepresentation: bounds) else { return false }
+                return rect.width >= 250 && rect.height >= 40 && rect.intersects(fieldOnScreen)
+            }
+            guard stillVisible else {
+                state = .noWindow; field = nil; stablePanelFrame = nil
+                return nil
             }
         }
         func description(_ rect: CGRect) -> String {
@@ -269,7 +293,7 @@ private func cardFrame(above spotlight: CGRect, visible: CGRect,
 }
 
 func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
-               display: DisplaySizeClass = .other, campo: Bool = false) -> CGRect? {
+               campo: Bool = false) -> CGRect? {
     if campo {
         guard let field = searchField else { return nil }
         // Campo changes its CG window while suggestions expand. The field
@@ -280,16 +304,25 @@ func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
         } else {
             let leftInset = min(64, max(40, field.height * 1.05))
             let rightInset = min(24, max(18, field.height * 0.35))
+            // Campo's rounded glass extends about 12 pt above the AX text
+            // field. Without this inset the first card frame almost touches
+            // the shell, then jumps upward when its CG window becomes visible.
+            let availableTopInset = visible.maxY - field.maxY - 10 - 8 - 72
+            let topInset = min(12, max(0, availableTopInset))
             shell = CGRect(x: field.minX - leftInset, y: field.minY,
-                           width: field.width + leftInset + rightInset, height: field.height)
+                           width: field.width + leftInset + rightInset,
+                           height: field.height + topInset)
         }
-        let anchor = CGRect(x: shell.minX, y: field.minY, width: shell.width, height: field.height)
-        // Fill the usable region above Spotlight, with breathing room below the
-        // menu bar. On shorter screens, reduce the insets before reducing content.
-        return cardFrame(above: anchor, visible: visible, gap: 15, topInset: 10,
-                         minimumHeight: 72, maximumHeight: 206)
+        // Anchor to the search panel's top edge. The text field sits inside it,
+        // so anchoring to the field leaves the two glass outlines almost touching.
+        // During Campo's window animation a transient shell may end slightly
+        // below the live text field. Never let that place the card on the field.
+        let anchor = CGRect(x: shell.minX, y: shell.minY, width: shell.width,
+                            height: max(shell.maxY, field.maxY) - shell.minY)
+        return cardFrame(above: anchor, visible: visible, gap: 10, topInset: 8,
+                         minimumHeight: 72, maximumHeight: 116)
             ?? cardFrame(above: anchor, visible: visible, gap: 8, topInset: 4,
-                         minimumHeight: 72, maximumHeight: 206)
+                         minimumHeight: 64, maximumHeight: 116)
     }
     if let aboveWindow = cardFrame(above: window, visible: visible) { return aboveWindow }
     // Campo's result window reaches almost to the menu bar on macOS 27.
@@ -297,13 +330,52 @@ func cardFrame(around window: CGRect, searchField: CGRect?, visible: CGRect,
     // This intentionally has no side or below fallback.
     let field = searchField ?? window
     return cardFrame(above: field, visible: visible, gap: 8, topInset: 4,
-                     minimumHeight: 72, maximumHeight: 206)
+                     minimumHeight: 64, maximumHeight: 116)
 }
 
 func stabilizedCardFrame(_ proposed: CGRect, previous: CGRect?, visible: CGRect,
-                         campo: Bool) -> CGRect {
+                         campo: Bool, searchField: CGRect? = nil) -> CGRect {
     guard campo, let previous, visible.contains(previous),
-          abs(previous.midX - proposed.midX) < 60,
-          abs(previous.minY - proposed.minY) < 20 else { return proposed }
-    return previous
+          abs(previous.midX - proposed.midX) < 60 else { return proposed }
+    // Preserve the stable width during Campo's result animation, but follow
+    // the current vertical anchor. Freezing y leaves the card over the search
+    // field when it moves while someone types quickly.
+    let hasClearance = searchField.map { previous.minY >= $0.maxY + 8 } ?? true
+    let y = abs(previous.minY - proposed.minY) < 8 && hasClearance
+        ? previous.minY : proposed.minY
+    let stable = CGRect(x: previous.minX, y: y,
+                        width: previous.width, height: previous.height)
+    return visible.contains(stable) ? stable : proposed
+}
+
+struct CardFrameStabilizer {
+    private var candidate: CGRect?
+    private var repeatedReadings = 0
+
+    mutating func reset() {
+        candidate = nil
+        repeatedReadings = 0
+    }
+
+    mutating func resolve(_ proposed: CGRect, previous: CGRect?, visible: CGRect,
+                          campo: Bool, searchField: CGRect?) -> CGRect {
+        let held = stabilizedCardFrame(proposed, previous: previous, visible: visible,
+                                       campo: campo, searchField: searchField)
+        guard held != proposed else { reset(); return proposed }
+        // Campo briefly reports a different window while animating results.
+        // Hold the old edges then accept a new, repeatedly observed size. A
+        // permanent display or scaling change must not lock the old width.
+        if let candidate,
+           abs(candidate.minX - proposed.minX) <= 2,
+           abs(candidate.minY - proposed.minY) <= 2,
+           abs(candidate.width - proposed.width) <= 2,
+           abs(candidate.height - proposed.height) <= 2 {
+            repeatedReadings += 1
+        } else {
+            candidate = proposed
+            repeatedReadings = 1
+        }
+        if repeatedReadings >= 4 { reset(); return proposed }
+        return held
+    }
 }

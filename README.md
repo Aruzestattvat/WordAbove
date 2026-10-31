@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.10 (build 13)
+- **Version**: 1.1.18 (build 21)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -30,7 +30,7 @@ Choose a release for your system:
 
 | System | Recommended release | Focus |
 | --- | --- | --- |
-| macOS 27 | [v1.1.10](../../releases/tag/v1.1.10) | Spotlight alignment, system Liquid Glass and faster dismissal |
+| macOS 27 | [v1.1.18](../../releases/tag/v1.1.18) | Adaptive top card, one-click copy and in-app updates |
 | macOS 26 | [v1.1.2](../../releases/tag/v1.1.2) | Stable on-device translation language-pack setup |
 
 Both releases remain available. The newer app also supports macOS 26; the labels identify the system each release was optimized for.
@@ -39,7 +39,7 @@ Both releases remain available. The newer app also supports macOS 26; the labels
 2. Unzip it (double-click in Finder) and drag `词在上.app` into `/Applications`.
 3. Open it, then in the app's setup window click **打开辅助功能设置** and enable **词在上** under
    *System Settings → Privacy & Security → Accessibility*.
-4. Menu bar icon → **下载中英日语言包…** → **一键准备中英日**. The app checks and downloads any missing
+4. Menu bar icon → **更多** → **下载中英日语言包…** → **一键准备中英日**. The app checks and downloads any missing
    language packs, then verifies all six translation directions. **The first download is roughly 0.9 GB and can
    take 5–30 minutes**; keep the panel open and allow any macOS download prompt.
 5. Once it reports **中英日已就绪 · 6/6**, press ⌘ Space and type `你好` or `Hello`.
@@ -47,8 +47,15 @@ Both releases remain available. The newer app also supports macOS 26; the labels
 The build is ad-hoc signed (not notarized), so the first launch may require
 *System Settings → Privacy & Security → Open Anyway*.
 
+From v1.1.18 onward, the app checks GitHub for new stable releases when it starts and every six hours while running.
+It prompts once per new version; choose **一键安装** to download, verify the release SHA-256 and code signature,
+replace the installed app and restart. **Older installed versions have no updater**, so they need one manual upgrade
+to v1.1.18 before future in-app update prompts can work. The update check does not send Spotlight searches or
+translations. Because releases are currently ad-hoc signed, macOS may ask you to renew Accessibility permission
+after an update. The menu bar also has **检查更新…** for a manual check.
+
 If no card appears for `hello`, open the menu bar's **设置…** item. It now shows whether the bundled dictionary
-is readable and whether Spotlight's search box can be read. **复制诊断信息** copies these checks without copying your
+is readable and whether Spotlight's search box can be read. **更多 → 复制诊断信息** copies these checks without copying your
 search text. The app can also print them from Terminal with
 `/Applications/词在上.app/Contents/MacOS/WordAbove --diagnose`.
 For macOS 27 reports, type `hello` in Spotlight before copying diagnostics. The app keeps the most recent search
@@ -96,6 +103,9 @@ English → Chinese words that hit the offline dictionary keep showing the Chine
 sentence. Everything else goes through Apple's on-device translation. Translation cards show the original text,
 language direction and the result; the app never invents IPA or example sentences it has not verified.
 Long text may be truncated in the card.
+Click the book icon on a card to copy the first dictionary meaning (without its part-of-speech label), or the
+current on-device translation. A monochrome ring turns once and draws a checkmark after copying; Reduce Motion
+shows the checkmark without the spin.
 
 ## Requirements
 
@@ -220,6 +230,17 @@ bash Scripts/build.sh --self-test     # app-level self-test
 - After rebuilding or updating an ad-hoc signed app, re-grant Accessibility if the card stops appearing:
   `tccutil reset Accessibility local.wordabove.SpotlightDictionary` — reset only this app, never others.
 
+## 1.1.18 changes — macOS 27 optimization
+
+- Click the card's book icon to copy the first dictionary meaning, or the full on-device translation. The icon
+  confirms the copy with layered monochrome rings rotating on different axes before drawing a checkmark, while keeping Spotlight focused.
+- Keep the card aligned to the live Spotlight window across 13-, 14-, and 16-inch layouts, scaled resolutions and
+  external displays. A permanent window-size change is adopted after stable readings; reopening starts from fresh geometry.
+- Fit the card into as little as 64 pt above Spotlight, showing the word and first meaning when space is tight.
+- Show full dictionary meanings on click within the card, without shifting the word title.
+- Reject stale Spotlight frames after dismissal to prevent the card flashing alone; preserve native Esc behavior.
+- Keep the menu concise and add a GitHub update check with verified, one-click installation for later releases.
+
 ## 1.1.10 changes
 
 - Fill the available region above Spotlight on macOS 27, matching the outer search panel's left and right edges.
@@ -234,8 +255,8 @@ bash Scripts/build.sh --self-test     # app-level self-test
 
 ## 1.1.8 changes
 
-- Detect the built-in display's physical size (13, 14 or 16 inches) and size the top card in proportion to
-  Spotlight's actual input-field height. External and scaled displays use their current field geometry.
+- Report the built-in display's physical size (13, 14 or 16 inches) in diagnostics. Card placement uses the live
+  Spotlight field and available screen space, including external and scaled displays.
 - Include the detected display class, usable screen size and chosen card size in copied diagnostics.
 
 ## 1.1.7 changes
@@ -303,6 +324,7 @@ macOS 菜单栏翻译辅助应用。打开 Spotlight（⌘ 空格）并输入文
 中日文中仅含汉字的词无法可靠区分语言：中文/日文语言对下默认按中文处理；例如想把日文“学校”译成中文，请从“翻译方向”选择“日文 → 中文”。包含假名的文字按日文处理。仅含英文的内容在中文/日文语言对下不触发自动翻译，可切换语言对或手动指定方向。
 
 英文 → 中文的单词命中离线词库时，继续显示中文释义、音标和例句。其余内容交给 Apple 本机翻译。自动翻译卡片显示原文、语言方向和译文；不生成未经词典核实的音标或例句。长文本可能在卡片中截短。
+点击卡片左侧的词典图标，可复制首条词典释义（不含词性标签）或当前系统译文；复制成功后，图标会保持单色样式转一圈并描出勾号。系统开启“减少动态效果”时直接显示勾号。
 
 ### 首次设置
 
@@ -319,17 +341,19 @@ macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息�
 1.1.4 开始识别 macOS 27 的 `com.apple.campo` 搜索浮窗；普通 Siri 聊天窗口不会被当作 Spotlight 读取。
 1.1.6 使用搜索输入框的实际位置摆放卡片，并按当前屏幕上方的可用高度缩小排版；卡片只出现在搜索框上方。
 1.1.7 优化顶部紧凑卡片的垂直留白，并补齐 `app` 的音标与例句；无效音标不再显示乱码。
-1.1.8 根据 13、14、16 寸内屏及当前 Spotlight 输入框尺寸动态调整顶部卡片；外接屏也按实际坐标适配。诊断信息新增显示器和卡片尺寸。
+1.1.8 新增 13、14、16 寸内屏识别与显示器诊断；后续版本改为始终按当前 Spotlight 窗口及屏幕可用空间排版，外接屏和显示缩放也使用实际坐标。
 1.1.9 修复 macOS 27 搜索结果展开时卡片先大后小、重新出现的闪烁；卡片与 Spotlight 外框左右对齐，连续输入时只更新内容。
 1.1.10 让顶部卡片填充 Spotlight 上方可用空间，并使用系统 Liquid Glass，跟随 macOS 27 的玻璃效果设置；缩短关闭搜索后的收起等待。
+1.1.18 加入图标一键复制首条释义／译文及单色多轴圆环确认动效、卡片内展开完整释义、跨屏幕尺寸的稳定对齐与 64 pt 紧凑排版，并修复关闭 Spotlight 后词卡短暂重现。菜单已精简；本版起内置检查更新和一键安装。旧版没有更新器，需先手动升级一次。
 
 ### 菜单
 
 - 自动互译：选择两个语言。
 - 翻译方向：自动识别，或固定正向/反向。
-- 下载中英日语言包：一键准备三种语言，验证全部六个方向；不改变当前选定的语言对。
-- 重试当前翻译：重新处理当前输入，适用于刚下载好语言或遇到暂时错误。
-- 暂停/恢复自动翻译、设置、卡片预览、来源与许可、退出。
+- 暂停/恢复自动翻译、设置、检查更新：保留在主菜单。
+- 更多 → 下载中英日语言包：一键准备三种语言，验证全部六个方向；不改变当前选定的语言对。
+- 更多 → 重试当前翻译、卡片预览、来源与许可、复制诊断信息。
+- 退出词在上：主菜单底部。
 
 设置中可开启登录启动。程序不会修改 Spotlight 的快捷键或其他应用的搜索开关。
 
@@ -338,12 +362,13 @@ macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息�
 辅助功能仅用于读取 Spotlight 搜索栏和窗口位置。程序不记录键盘、不读取其他应用文本、不录屏，也不保存搜索历史。邮箱、网址、路径、纯数字、控制字符和超过 400 字符的输入不触发翻译。
 
 自动互译使用 Apple `Translation.framework`，不调用第三方翻译服务；译文仅在进程内缓存最近 100 条，退出清除。
+更新检查只向 GitHub 查询正式版本，不上传搜索词或译文。安装包下载后会校验 GitHub Release 的 SHA-256 和应用签名。
 
 英文词典的“缺少例句时联网补充”是单独的可选功能，默认开启；仅把已识别且需要补充的英文单词发给 `api.dictionaryapi.dev`。可在设置中关闭。这一开关不影响 Apple 本机翻译。
 
 ### 布局与缺失内容
 
-卡片与 Spotlight 宽度一致，间距 12 pt，高度最多 206 pt。上方空间不足时缩小；不足 100 pt 时隐藏，请将 Spotlight 稍向下拖动。屏幕边缘会限制卡片尺寸。
+卡片跟随 Spotlight 当前外框的宽度和位置；macOS 27 的卡片最高 116 pt，上方空间紧张时最小可缩至 64 pt 并优先显示单词和释义。若连 64 pt 都放不下，卡片会隐藏。屏幕边缘会限制卡片尺寸。
 
 离线词库包含 399,213 个英文词条，其中 18,480 个带例句或用法片段。部分词条没有音标或例句；缺失内容会明确提示，不编造。英语例句可能对应其他词义。系统翻译结果也可能有歧义。
 

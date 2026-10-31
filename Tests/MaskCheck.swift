@@ -5,7 +5,7 @@ import AppKit
         _ = NSApplication.shared
         let mask = RoundedMaterialView.materialMask()
         precondition(mask.capInsets.left == 28 && mask.resizingMode == .stretch)
-        for size in [NSSize(width: 560, height: 72), NSSize(width: 640, height: 130), NSSize(width: 960, height: 206)] {
+        for size in [NSSize(width: 560, height: 64), NSSize(width: 560, height: 72), NSSize(width: 640, height: 130), NSSize(width: 960, height: 206)] {
             let view = RoundedMaterialView(frame: NSRect(origin: .zero, size: size))
             precondition(view.maskImage != nil && !view.isOpaque)
             precondition(view.layer?.masksToBounds == true)

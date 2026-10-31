@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${VERSION:-1.1.10}"
+VERSION="${VERSION:-1.1.18}"
 OUT="$ROOT/dist"
 DO_BUILD=0
 APP_NAME="${APP_NAME:-词在上}"

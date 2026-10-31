@@ -29,6 +29,21 @@ func displayPhonetic(_ raw: String) -> String? {
     return "/" + clean + "/"
 }
 
+func firstDictionaryMeaning(_ translation: String) -> String? {
+    let lines = translation.components(separatedBy: .newlines)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    guard var line = lines.first(where: { !$0.hasPrefix("[") }) ?? lines.first else { return nil }
+    // ECDICT usually starts with a part of speech, followed by comma- or
+    // semicolon-separated meanings. The copy action keeps only the first one.
+    line = line.replacingOccurrences(of: "^(?:(?:n|v|vt|vi|adj|adv|art|prep|pron|conj|interj|int|num|abbr|aux|a|pl)\\.\\s*)+",
+                                     with: "", options: [.regularExpression, .caseInsensitive])
+    line = line.replacingOccurrences(of: "^\\[[^]]+\\]\\s*", with: "", options: .regularExpression)
+    let first = line.components(separatedBy: CharacterSet(charactersIn: ",，;；、"))
+        .first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return first.isEmpty ? nil : first
+}
+
 final class DictionaryStore {
     private var db: OpaquePointer?
     let isReady: Bool

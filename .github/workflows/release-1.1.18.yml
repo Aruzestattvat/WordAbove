@@ -1,0 +1,33 @@
+name: release macOS 27 build 1.1.18
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event.head_commit.message == 'release: WordAbove v1.1.18'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and verify
+        run: bash Scripts/build.sh --out dist --self-test
+
+      - name: Package signed app
+        run: bash Scripts/package-release.sh --out dist
+
+      - name: Publish macOS 27 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.1.18 \
+            dist/WordAbove-1.1.18-macos-arm64.zip \
+            dist/WordAbove-1.1.18-macos-arm64.zip.sha256 \
+            --target "$GITHUB_SHA" \
+            --latest \
+            --title 'WordAbove · 词在上 1.1.18 — macOS 27 优化' \
+            --notes-file ReleaseNotes/v1.1.18.md

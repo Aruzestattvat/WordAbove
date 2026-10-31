@@ -27,8 +27,8 @@ CODESIGN="${CODESIGN:-1}"
 APP_NAME="${APP_NAME:-词在上}"
 BUNDLE_ID="local.wordabove.SpotlightDictionary"
 EXECUTABLE="WordAbove"
-VERSION="1.1.10"
-BUILD_NUMBER="13"
+VERSION="1.1.18"
+BUILD_NUMBER="21"
 
 OUT="$ROOT/dist"
 RUN_SELF_TEST=0
