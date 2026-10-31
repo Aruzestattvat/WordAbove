@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   release:
-    if: github.event.head_commit.message == 'release: WordAbove v1.1.18'
+    if: "github.event.head_commit.message == 'release: WordAbove v1.1.18'"
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
