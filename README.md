@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.18 (build 21)
+- **Version**: 1.1.19 (build 22)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -30,7 +30,7 @@ Choose a release for your system:
 
 | System | Recommended release | Focus |
 | --- | --- | --- |
-| macOS 27 | [v1.1.18](../../releases/tag/v1.1.18) | Adaptive top card, one-click copy and in-app updates |
+| macOS 27 | [v1.1.19](../../releases/tag/v1.1.19) | Chinese-to-English pronunciation and dictionary meanings, adaptive top card |
 | macOS 26 | [v1.1.2](../../releases/tag/v1.1.2) | Stable on-device translation language-pack setup |
 
 Both releases remain available. The newer app also supports macOS 26; the labels identify the system each release was optimized for.
@@ -130,8 +130,8 @@ translation.
 Translation uses Apple's `Translation.framework` — **no third-party translation service**. Results are cached in
 memory (last 100) and cleared on quit.
 
-The English dictionary's optional *online example supplement* is separate and opt-in (on by default): it sends
-only the current English word to `api.dictionaryapi.dev`, and can be turned off in settings. It does not affect
+The English dictionary's optional *online pronunciation and example supplement* is separate and opt-in (on by default): it sends
+only the current looked-up or translated English word to `api.dictionaryapi.dev`, and can be turned off in settings. It does not affect
 on-device translation.
 
 ## Layout
@@ -364,7 +364,7 @@ macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息�
 自动互译使用 Apple `Translation.framework`，不调用第三方翻译服务；译文仅在进程内缓存最近 100 条，退出清除。
 更新检查只向 GitHub 查询正式版本，不上传搜索词或译文。安装包下载后会校验 GitHub Release 的 SHA-256 和应用签名。
 
-英文词典的“缺少例句时联网补充”是单独的可选功能，默认开启；仅把已识别且需要补充的英文单词发给 `api.dictionaryapi.dev`。可在设置中关闭。这一开关不影响 Apple 本机翻译。
+英文词典的“联网补充音标和例句”是单独的可选功能，默认开启；仅把当前查到或译出的单个英文词发给 `api.dictionaryapi.dev`。可在设置中关闭，随后只使用离线词库。这一开关不影响 Apple 本机翻译。
 
 ### 布局与缺失内容
 

@@ -56,7 +56,9 @@ struct DictionaryCard: View {
                                 tight: geo.size.height < 96, micro: geo.size.height < 70,
                                 copied: translated.text != nil && model.copiedTranslation == translated.text,
                                 copyFeedbackAnimator: model.copyFeedbackAnimator,
-                                onCopy: { if let text = translated.text { model.copyTranslation(text) } })
+                                onCopy: { if let text = translated.text { model.copyTranslation(text) } },
+                                expanded: model.expandedMeaning,
+                                onToggleExpanded: { model.expandedMeaning.toggle() })
             } else if let entry = model.entry {
                 let compact = geo.size.height < 170
                 let tight = geo.size.height < 96
@@ -212,8 +214,8 @@ struct SetupView: View {
                 Button("下载中英日语言包…", action: languages)
             }
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("缺少例句时联网补充", isOn: $model.online)
-                Text("仅把当前已识别的英文单词发给 api.dictionaryapi.dev。关闭后仅使用离线词库；部分单词没有例句。")
+                Toggle("联网补充音标和例句", isOn: $model.online)
+                Text("仅把当前查到或译出的单个英文词发给 api.dictionaryapi.dev。关闭后使用离线词库。")
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(2)
                 Toggle("登录时启动", isOn: Binding(get: { model.login }, set: loginChanged))
             }.toggleStyle(.checkbox).font(.system(size: 13))
@@ -282,9 +284,13 @@ class FirstClickHostingView<Content: View>: NSHostingView<Content> {
         // Keep geometry updates running while the input method shows its
         // candidate window; a default-mode timer pauses during that interaction.
         RunLoop.main.add(timer!, forMode: .common)
-        if !model.trusted || CommandLine.arguments.contains("--settings") { showSetup() }
+        let cardPreview = CommandLine.arguments.contains { $0.hasPrefix("--preview") }
+        if (!model.trusted && !cardPreview) || CommandLine.arguments.contains("--settings") { showSetup() }
         if CommandLine.arguments.contains("--preview") { showPreview() }
         if CommandLine.arguments.contains("--preview-compact") { showCardPreview(height: 78) }
+        if CommandLine.arguments.contains("--preview-translation") { showCardPreview(height: 140, translation: true) }
+        if CommandLine.arguments.contains("--preview-translation-compact") { showCardPreview(height: 78, translation: true) }
+        if CommandLine.arguments.contains("--preview-translation-expanded") { showCardPreview(height: 140, translation: true, expanded: true) }
         if CommandLine.arguments.contains("--languages") { showLanguageSetup() }
         Task { await preparation.refresh(); rebuildMenu() }
         Task { [weak self] in
@@ -551,8 +557,16 @@ class FirstClickHostingView<Content: View>: NSHostingView<Content> {
     @objc func showPreview() {
         showCardPreview(height: 206)
     }
-    private func showCardPreview(height: CGFloat) {
-        let sample = Model(); sample.entry = dictionary.lookup(height < 110 ? "app" : "serendipity")
+    private func showCardPreview(height: CGFloat, translation: Bool = false, expanded: Bool = false) {
+        let sample = Model()
+        if translation {
+            let request = TranslationRequest(text: "书", source: .chinese, target: .english)
+            sample.translated = TranslationCardContent(request: request, text: "Book", message: nil,
+                                                       dictionaryEntry: dictionary.lookup("book"))
+            sample.expandedMeaning = expanded
+        } else {
+            sample.entry = dictionary.lookup(height < 110 ? "app" : "serendipity")
+        }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: height), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "词在上 · 卡片预览"; window.contentView = cardContent(sample)
         window.isReleasedWhenClosed = false; window.center()
@@ -655,7 +669,7 @@ class FirstClickHostingView<Content: View>: NSHostingView<Content> {
             return
         }
         model.entry = nil
-        model.translated = TranslationCardContent(request: request, text: nil, message: nil)
+        model.translated = TranslationCardContent(request: request, text: nil, message: nil, dictionaryEntry: nil)
         showCard()
         lookupTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
@@ -663,11 +677,22 @@ class FirstClickHostingView<Content: View>: NSHostingView<Content> {
             do {
                 let text = try await self.translator.translate(request)
                 guard !Task.isCancelled, self.currentWord == word else { return }
-                self.model.translated = TranslationCardContent(request: request, text: text, message: nil)
+                let entry = request.target == .english
+                    ? englishTranslationHeadword(text).flatMap { self.dictionary.lookup($0) }
+                    : nil
+                self.model.translated = TranslationCardContent(request: request, text: text, message: nil, dictionaryEntry: entry)
+                if let entry, self.model.online {
+                    let supplemented = await self.examples.supplement(entry)
+                    guard !Task.isCancelled, self.currentWord == word else { return }
+                    if supplemented.phonetic != entry.phonetic {
+                        self.model.translated = TranslationCardContent(request: request, text: text, message: nil,
+                                                                       dictionaryEntry: supplemented)
+                    }
+                }
             } catch {
                 guard !Task.isCancelled, self.currentWord == word else { return }
                 let message = (error as? LocalTranslationError)?.errorDescription ?? "翻译暂时不可用，请从菜单栏重试，或重新准备中英日语言包。"
-                self.model.translated = TranslationCardContent(request: request, text: nil, message: message)
+                self.model.translated = TranslationCardContent(request: request, text: nil, message: message, dictionaryEntry: nil)
             }
         }
     }
@@ -734,6 +759,14 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         precondition(normalizedWord("two words") == nil)
         precondition(normalizedWord("你好") == nil)
         precondition(normalizedWord("can't") == "can't")
+        precondition(englishTranslationHeadword(" Book. ") == "book")
+        precondition(englishTranslationHeadword("ice cream") == nil)
+        precondition(englishTranslationHeadword("一件") == nil)
+        guard let book = englishTranslationHeadword("Book").flatMap(store.lookup),
+              displayPhonetic(book.phonetic) != nil,
+              book.translation.contains("预订") else {
+            fatalError("Chinese to English dictionary enrichment is unavailable")
+        }
         precondition(store.lookup("zzzzthisisnotaword") == nil)
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 875)
         let search = CGRect(x: 370, y: 300, width: 700, height: 300)

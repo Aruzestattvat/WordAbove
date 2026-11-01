@@ -18,6 +18,11 @@ func normalizedWord(_ raw: String) -> String? {
     return word
 }
 
+func englishTranslationHeadword(_ translation: String) -> String? {
+    let trimmed = translation.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+    return normalizedWord(trimmed)
+}
+
 func displayPhonetic(_ raw: String) -> String? {
     let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "/[]")))
         .replacingOccurrences(of: "'", with: "ˈ")
@@ -98,9 +103,9 @@ actor ExampleService {
             guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_000_000 else { attempted.insert(entry.word); return entry }
             let results = try JSONDecoder().decode([APIEntry].self, from: data)
             var updated = entry
-            if displayPhonetic(updated.phonetic) == nil {
-                let candidates = results.compactMap(\.phonetic) + results.flatMap { $0.phonetics ?? [] }.compactMap(\.text)
-                updated.phonetic = candidates.first(where: { displayPhonetic($0) != nil }) ?? ""
+            let candidates = results.compactMap(\.phonetic) + results.flatMap { $0.phonetics ?? [] }.compactMap(\.text)
+            if let phonetic = candidates.first(where: { displayPhonetic($0) != nil }) {
+                updated.phonetic = phonetic
             }
             outer: for result in results {
                 for definition in result.meanings.flatMap(\.definitions) {
