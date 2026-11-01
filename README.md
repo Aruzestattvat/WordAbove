@@ -17,7 +17,7 @@ system light/dark appearance, and never steals keyboard focus.
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.19 (build 22)
+- **Version**: 1.1.20 (build 23)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -30,7 +30,7 @@ Choose a release for your system:
 
 | System | Recommended release | Focus |
 | --- | --- | --- |
-| macOS 27 | [v1.1.19](../../releases/tag/v1.1.19) | Chinese-to-English pronunciation and dictionary meanings, adaptive top card |
+| macOS 27 | [v1.1.20](../../releases/tag/v1.1.20) | Menu bar visibility fix, Chinese-to-English dictionary details |
 | macOS 26 | [v1.1.2](../../releases/tag/v1.1.2) | Stable on-device translation language-pack setup |
 
 Both releases remain available. The newer app also supports macOS 26; the labels identify the system each release was optimized for.

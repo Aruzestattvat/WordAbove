@@ -274,6 +274,9 @@ class FirstClickHostingView<Content: View>: NSHostingView<Content> {
         if !model.dictionaryReady { model.note = "应用内词库缺失或损坏，请重新下载安装完整的 .app。" }
         createPanel()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // Keep one identity across launches so macOS Menu Bar settings can
+        // persist the user's visibility choice for this item.
+        statusItem.autosaveName = "WordAbove.statusItem"
         statusItem.button?.image = NSImage(systemSymbolName: "character.book.closed", accessibilityDescription: "词在上")
         statusItem.button?.toolTip = "词在上 · Spotlight 自动互译"
         rebuildMenu()
