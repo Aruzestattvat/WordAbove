@@ -24,14 +24,23 @@ func englishTranslationHeadword(_ translation: String) -> String? {
 }
 
 func displayPhonetic(_ raw: String) -> String? {
-    let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "/[]")))
-        .replacingOccurrences(of: "'", with: "ˈ")
-        .replacingOccurrences(of: ",", with: "ˌ")
-        .replacingOccurrences(of: "ә", with: "ə")
-    guard !clean.isEmpty, clean.count <= 64,
-          !clean.contains("?"), !clean.contains("�"),
-          !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
-    return "/" + clean + "/"
+    for variant in raw.split(separator: ";", omittingEmptySubsequences: true) {
+        let clean = String(variant)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "/[]")))
+            .replacingOccurrences(of: "'", with: "ˈ")
+            .replacingOccurrences(of: ",", with: "ˌ")
+            .replacingOccurrences(of: "ә", with: "ə")
+            .replacingOccurrences(of: ":", with: "ː")
+        guard !clean.isEmpty, clean.count <= 64,
+              !clean.hasPrefix("-"), !clean.hasPrefix("‐"), !clean.hasPrefix("–"),
+              !clean.hasSuffix("-"), !clean.hasSuffix("‐"), !clean.hasSuffix("–"),
+              clean.rangeOfCharacter(from: CharacterSet(charactersIn: "/[]?@�^\\0123456789")) == nil,
+              clean.rangeOfCharacter(from: .uppercaseLetters) == nil,
+              !clean.unicodeScalars.contains(where: { (0x3400...0x9FFF).contains($0.value) }),
+              !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { continue }
+        return "/" + clean + "/"
+    }
+    return nil
 }
 
 func firstDictionaryMeaning(_ translation: String) -> String? {
@@ -71,12 +80,16 @@ final class DictionaryStore {
             guard let text = sqlite3_column_text(statement, column) else { return "" }
             return String(cString: text)
         }
-        return Entry(word: value(0), phonetic: value(1), translation: value(2), definition: value(3), example: value(4), source: value(5))
+        let word = value(0)
+        // ECDICT's notation for this entry is not IPA. Use the complete UK
+        // pronunciation; online suffix-only variants are rejected above.
+        let phonetic = word == "virtue" ? "/ˈvɜː.tʃuː/" : value(1)
+        return Entry(word: word, phonetic: phonetic, translation: value(2), definition: value(3), example: value(4), source: value(5))
     }
 }
 
 struct APIEntry: Decodable {
-    struct Phonetic: Decodable { let text: String? }
+    struct Phonetic: Decodable { let text: String?; let audio: String? }
     struct Meaning: Decodable {
         struct Definition: Decodable { let example: String? }
         let definitions: [Definition]
@@ -87,6 +100,14 @@ struct APIEntry: Decodable {
     let meanings: [Meaning]
     let sourceUrls: [String]?
     let license: License?
+}
+
+func preferredOnlinePhonetic(_ results: [APIEntry]) -> String? {
+    let phonetics = results.flatMap { $0.phonetics ?? [] }
+    let candidates = phonetics.filter { !($0.audio ?? "").isEmpty }.compactMap(\.text)
+        + phonetics.compactMap(\.text)
+        + results.compactMap(\.phonetic)
+    return candidates.first(where: { displayPhonetic($0) != nil })
 }
 
 actor ExampleService {
@@ -103,8 +124,7 @@ actor ExampleService {
             guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_000_000 else { attempted.insert(entry.word); return entry }
             let results = try JSONDecoder().decode([APIEntry].self, from: data)
             var updated = entry
-            let candidates = results.compactMap(\.phonetic) + results.flatMap { $0.phonetics ?? [] }.compactMap(\.text)
-            if let phonetic = candidates.first(where: { displayPhonetic($0) != nil }) {
+            if let phonetic = preferredOnlinePhonetic(results) {
                 updated.phonetic = phonetic
             }
             outer: for result in results {

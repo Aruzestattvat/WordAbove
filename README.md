@@ -10,14 +10,14 @@
 A macOS menu-bar **translation & dictionary** app that renders a card **above the Spotlight search field**.
 Type something in Spotlight (⌘ Space) and a card appears above the search box: Chinese/Japanese translation
 via Apple's on-device `Translation.framework`, or — for English words that hit the offline dictionary —
-the Chinese definition, IPA and an example sentence. It dismisses itself when Spotlight closes, follows the
+the Chinese definition, pronunciation and an example sentence. It dismisses itself when Spotlight closes, follows the
 system light/dark appearance, and never steals keyboard focus.
 
 > 词在上是一个 macOS 菜单栏**翻译 + 词典**应用：打开 Spotlight 输入文字，搜索框上方浮出卡片。
 > 中英日短词短句用 Apple 本机 `Translation.framework` 自动互译；英文单词命中离线词库时显示中文释义、
 > 音标与例句。关闭 Spotlight 自动收起。中文完整说明见 [中文说明](#中文说明)。
 
-- **Version**: 1.1.20 (build 23)
+- **Version**: 1.1.21 (build 24)
 - **Platform**: macOS **26.0+** for automatic translation · macOS 14.0+ for offline English dictionary
 - **Architecture**: Apple Silicon (arm64)
 - **Languages**: 中文 ⇄ English ⇄ 日本語 (on-device, no third-party translation service)
@@ -30,7 +30,7 @@ Choose a release for your system:
 
 | System | Recommended release | Focus |
 | --- | --- | --- |
-| macOS 27 | [v1.1.20](../../releases/tag/v1.1.20) | Menu bar visibility fix, Chinese-to-English dictionary details |
+| macOS 27 | [v1.1.21](../../releases/tag/v1.1.21) | Pronunciation cleanup, Chinese-to-English dictionary details |
 | macOS 26 | [v1.1.2](../../releases/tag/v1.1.2) | Stable on-device translation language-pack setup |
 
 Both releases remain available. The newer app also supports macOS 26; the labels identify the system each release was optimized for.
@@ -99,7 +99,7 @@ Expect **5–30 minutes** depending on the network.
 
 ## Offline dictionary
 
-English → Chinese words that hit the offline dictionary keep showing the Chinese definition, IPA and example
+English → Chinese words that hit the offline dictionary keep showing the Chinese definition, pronunciation and example
 sentence. Everything else goes through Apple's on-device translation. Translation cards show the original text,
 language direction and the result; the app never invents IPA or example sentences it has not verified.
 Long text may be truncated in the card.
@@ -112,7 +112,7 @@ shows the checkmark without the spin.
 | Feature | Minimum macOS |
 |---|---|
 | Automatic translation (中/英/日) | **macOS 26.0** |
-| Offline English dictionary, IPA, examples | macOS 14.0 |
+| Offline English dictionary, pronunciation, examples | macOS 14.0 |
 | Build from source | macOS 26+ SDK (must include `Translation.framework`) + matching Swift compiler |
 
 Language packs are managed by macOS (*System Settings → General → Language & Region → Translation Languages*).
@@ -371,6 +371,7 @@ macOS 27 上请先在 Spotlight 输入 `hello`，关闭后再复制诊断信息�
 卡片跟随 Spotlight 当前外框的宽度和位置；macOS 27 的卡片最高 116 pt，上方空间紧张时最小可缩至 64 pt 并优先显示单词和释义。若连 64 pt 都放不下，卡片会隐藏。屏幕边缘会限制卡片尺寸。
 
 离线词库包含 399,213 个英文词条，其中 18,480 个带例句或用法片段。部分词条没有音标或例句；缺失内容会明确提示，不编造。英语例句可能对应其他词义。系统翻译结果也可能有歧义。
+离线词库的部分音标采用 ECDICT 的转写记法，并非全部是标准 IPA；开启联网补充后，应用会优先使用词典接口提供的完整读音。残缺或混有说明文字的字段不会显示。
 
 ### 构建与验证
 

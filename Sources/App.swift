@@ -752,6 +752,18 @@ extension CGRect { var area: CGFloat { isNull ? 0 : width * height } }
         }
         precondition(displayPhonetic("/ˈæp/") == "/ˈæp/")
         precondition(displayPhonetic("/ ?æ?p? /") == nil)
+        precondition(displayPhonetic("/-tju/") == nil)
+        precondition(displayPhonetic("/-tju/; /ˈvɜː.tʃuː/") == "/ˈvɜː.tʃuː/")
+        precondition(displayPhonetic("ə'gleɪ; ə'gliː") == "/əˈgleɪ/")
+        precondition(displayPhonetic("'bju:tiful") == "/ˈbjuːtiful/")
+        precondition(displayPhonetic("/ˈte-/") == nil)
+        precondition(displayPhonetic("06,0melitin") == nil)
+        precondition(displayPhonetic(store.lookup("virtue")?.phonetic ?? "") == "/ˈvɜː.tʃuː/")
+        let onlinePronunciations = try! JSONDecoder().decode([APIEntry].self, from: Data("""
+        [{"phonetic":"/-tju/","phonetics":[{"text":"/-tju/","audio":""},
+        {"text":"/ˈvɜː.tʃuː/","audio":"https://example.org/virtue.mp3"}],"meanings":[]}]
+        """.utf8))
+        precondition(preferredOnlinePhonetic(onlinePronunciations) == "/ˈvɜː.tʃuː/")
         precondition(firstDictionaryMeaning(store.lookup("calash")!.translation) == "篷马车")
         precondition(firstDictionaryMeaning(store.lookup("apple")!.translation) == "苹果")
         precondition(firstDictionaryMeaning(store.lookup("a")!.translation) == "第一个字母 A")
